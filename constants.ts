@@ -55,11 +55,12 @@ export const INITIAL_STATE: AppState = {
   expenses: generateInitialExpenses(),
   guestGroups: INITIAL_GROUPS,
   guests: [
-    { id: 'g1', name: 'Noivo', group: 'Casal', confirmed: true },
-    { id: 'g2', name: 'Noiva', group: 'Casal', confirmed: true },
-    { id: 'g3', name: 'Mãe da Noiva', group: 'Família Noiva', confirmed: true },
-    { id: 'g4', name: 'Pai da Noiva', group: 'Família Noiva', confirmed: true },
-    { id: 'g5', name: 'Mãe do Noivo', group: 'Família Noivo', confirmed: true },
-    { id: 'g6', name: 'Pai do Noivo', group: 'Família Noivo', confirmed: true },
+    { id: 'g0', name: 'O Casal', group: 'Casal', confirmed: true },
+    { id: 'g1', name: 'Mãe da Noiva', group: 'Família Noiva', confirmed: true, parentId: 'g0' },
+    { id: 'g2', name: 'Pai da Noiva', group: 'Família Noiva', confirmed: true, parentId: 'g0' },
+    { id: 'g3', name: 'Mãe do Noivo', group: 'Família Noivo', confirmed: true, parentId: 'g0' },
+    { id: 'g4', name: 'Pai do Noivo', group: 'Família Noivo', confirmed: true, parentId: 'g0' },
+    { id: 'g5', name: 'Tia Maria', group: 'Família Noiva', confirmed: false, parentId: 'g1' },
+    { id: 'g6', name: 'Tio João', group: 'Família Noiva', confirmed: false, parentId: 'g1' },
   ]
 };

@@ -19,6 +19,7 @@ export interface Guest {
   name: string;
   group: string; // Corresponde ao GuestGroup.name
   confirmed: boolean;
+  parentId?: string; // ID do convidado ao qual este está conectado
 }
 
 export interface AppState {

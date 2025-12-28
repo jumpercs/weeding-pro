@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { Guest, GuestGroup } from '../types';
-import { Plus, ListPlus, Palette, Trash2, CheckCircle, Save, X, Edit3 } from 'lucide-react';
+import { Plus, ListPlus, Palette, Trash2, CheckCircle, Save, Edit3, Link as LinkIcon } from 'lucide-react';
 
 interface GuestGraphProps {
   guests: Guest[];
@@ -15,7 +15,6 @@ interface GuestGraphProps {
   onDeleteGroup: (id: string) => void;
 }
 
-// Only Guest Nodes now
 interface GraphNode extends d3.SimulationNodeDatum {
   id: string;
   group: string;
@@ -28,6 +27,11 @@ interface GraphNode extends d3.SimulationNodeDatum {
   vy?: number;
   fx?: number | null;
   fy?: number | null;
+}
+
+interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
+    source: string | GraphNode;
+    target: string | GraphNode;
 }
 
 const PRESET_COLORS = [
@@ -57,6 +61,7 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
   // Input State
   const [newGuestName, setNewGuestName] = useState('');
   const [selectedGroup, setSelectedGroup] = useState(groups[0]?.name || 'Família');
+  const [selectedParentId, setSelectedParentId] = useState<string>('');
   
   // Bulk Input State
   const [bulkText, setBulkText] = useState('');
@@ -68,6 +73,7 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
   // Edit State
   const [editName, setEditName] = useState('');
   const [editGroup, setEditGroup] = useState('');
+  const [editParentId, setEditParentId] = useState<string>('');
 
   // Derived state for the selected guest object
   const selectedGuest = useMemo(() => 
@@ -79,11 +85,12 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
       if (selectedGuest) {
           setEditName(selectedGuest.name);
           setEditGroup(selectedGuest.group);
+          setEditParentId(selectedGuest.parentId || '');
           setSidebarTab('edit');
       } else if (sidebarTab === 'edit') {
           setSidebarTab('add');
       }
-  }, [selectedGuest]); // Depend only on selectedGuest to prevent loops
+  }, [selectedGuest]);
 
   // Update selected group if groups change and current is invalid
   useEffect(() => {
@@ -93,39 +100,27 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
   }, [groups, selectedGroup]);
 
   // Prepare Data for D3
-  const nodes: GraphNode[] = useMemo(() => {
-    // Helper to get color
+  const { nodes, links } = useMemo(() => {
     const getColor = (groupName: string) => groups.find(g => g.name === groupName)?.color || '#94a3b8';
 
-    return guests.map(g => ({
+    const graphNodes: GraphNode[] = guests.map(g => ({
       id: g.id,
       group: g.group,
       name: g.name,
       confirmed: g.confirmed,
       color: getColor(g.group),
-      // We don't map fx/fy from state to allow re-simulation, unless we want to save position
     }));
+
+    const graphLinks: GraphLink[] = guests
+        .filter(g => g.parentId && guests.find(p => p.id === g.parentId))
+        .map(g => ({
+            source: g.parentId!,
+            target: g.id
+        }));
+
+    return { nodes: graphNodes, links: graphLinks };
   }, [guests, groups]);
 
-  // Calculate Group Centers for Clustering
-  const groupCenters = useMemo(() => {
-      const centers: Record<string, {x: number, y: number}> = {};
-      const numGroups = groups.length;
-      if (numGroups === 0) return centers;
-      
-      const width = containerRef.current?.clientWidth || 800;
-      const height = containerRef.current?.clientHeight || 600;
-      const radius = Math.min(width, height) / 3;
-
-      groups.forEach((g, i) => {
-          const angle = (i / numGroups) * 2 * Math.PI;
-          centers[g.name] = {
-              x: width / 2 + Math.cos(angle) * radius,
-              y: height / 2 + Math.sin(angle) * radius
-          };
-      });
-      return centers;
-  }, [groups, containerRef.current?.clientWidth, containerRef.current?.clientHeight]);
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return;
@@ -148,18 +143,20 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
 
     // Forces
     const simulation = d3.forceSimulation<GraphNode>(nodes)
-      .force("charge", d3.forceManyBody().strength(-20)) // Slight repulsion to prevent exact overlap
-      .force("collide", d3.forceCollide().radius(12).strength(0.7)) // Prevent collision
-      // Custom clustering force
-      .force("cluster", (alpha) => {
-          for (const node of nodes) {
-            const center = groupCenters[node.group] || { x: width / 2, y: height / 2 };
-            // Move node towards its group center
-            const k = alpha * 0.1; // Strength
-            node.vx! += (center.x - node.x!) * k;
-            node.vy! += (center.y - node.y!) * k;
-          }
-      });
+      .force("link", d3.forceLink<GraphNode, GraphLink>(links).id(d => d.id).distance(80))
+      .force("charge", d3.forceManyBody().strength(-300))
+      .force("center", d3.forceCenter(width / 2, height / 2))
+      .force("collide", d3.forceCollide().radius(25).strength(0.7));
+
+    // Draw Links
+    const link = g.append("g")
+        .attr("stroke", "#64748b")
+        .attr("stroke-opacity", 0.4)
+        .selectAll("line")
+        .data(links)
+        .join("line")
+        .attr("stroke-width", 1.5)
+        .attr("stroke-dasharray", "4,4"); // Dashed style like in the example image
 
     // Draw Nodes
     const node = g.append("g")
@@ -172,14 +169,14 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
         .on("end", dragended)
       )
       .on("click", (event, d) => {
-          event.stopPropagation(); // Prevent bg click
+          event.stopPropagation();
           setSelectedNodeId(d.id);
       });
 
     // Background circle (Halo) for selected node
     node.filter(d => d.id === selectedNodeId)
         .append("circle")
-        .attr("r", 14)
+        .attr("r", 20)
         .attr("fill", "none")
         .attr("stroke", "#fff")
         .attr("stroke-width", 2)
@@ -187,7 +184,7 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
 
     // Main Circle
     node.append("circle")
-      .attr("r", 8)
+      .attr("r", 12)
       .attr("fill", d => d.color)
       .attr("stroke", "#1e293b")
       .attr("stroke-width", 2)
@@ -197,15 +194,22 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
     // Labels
     node.append("text")
       .text(d => d.name)
-      .attr("x", 12)
-      .attr("y", 4)
+      .attr("dy", 26) // Position below circle
+      .attr("text-anchor", "middle")
       .attr("fill", "#e2e8f0")
-      .style("font-size", "10px")
+      .style("font-size", "11px")
       .style("pointer-events", "none")
-      .style("text-shadow", "0px 1px 2px #000");
+      .style("text-shadow", "0px 1px 4px #000");
 
     simulation.on("tick", () => {
-      node.attr("transform", d => `translate(${d.x},${d.y})`);
+      link
+        .attr("x1", d => (d.source as GraphNode).x!)
+        .attr("y1", d => (d.source as GraphNode).y!)
+        .attr("x2", d => (d.target as GraphNode).x!)
+        .attr("y2", d => (d.target as GraphNode).y!);
+
+      node
+        .attr("transform", d => `translate(${d.x},${d.y})`);
     });
 
     // Background click to deselect
@@ -234,7 +238,7 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
     return () => {
       simulation.stop();
     };
-  }, [nodes, groupCenters, selectedNodeId]); // Re-run when selection or structure changes
+  }, [nodes, links, selectedNodeId]);
 
   // Handlers
   const handleAdd = () => {
@@ -243,9 +247,11 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
           id: Date.now().toString(),
           name: newGuestName,
           group: selectedGroup,
-          confirmed: false
+          confirmed: false,
+          parentId: selectedParentId || undefined
       });
       setNewGuestName('');
+      // Keep connection/group for next addition to make creating families easier
   };
 
   const handleBulkAdd = () => {
@@ -255,7 +261,8 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
           id: `${Date.now()}-${idx}`,
           name: name.trim(),
           group: selectedGroup,
-          confirmed: false
+          confirmed: false,
+          parentId: selectedParentId || undefined
       }));
       onBulkAddGuests(newGuests);
       setBulkText('');
@@ -277,8 +284,14 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
       onUpdateGuest({
           ...selectedGuest,
           name: editName,
-          group: editGroup
+          group: editGroup,
+          parentId: editParentId || undefined
       });
+  };
+
+  // Helper to get list of potential parents (exclude self)
+  const getParentOptions = (excludeId?: string) => {
+      return guests.filter(g => g.id !== excludeId).sort((a, b) => a.name.localeCompare(b.name));
   };
 
   return (
@@ -321,31 +334,51 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
                 {/* Content based on Tab */}
                 {sidebarTab === 'add' && (
                     <div className="space-y-3">
-                        <input 
-                            type="text" 
-                            placeholder="Nome do convidado" 
-                            className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white focus:border-teal-500 outline-none text-sm"
-                            value={newGuestName}
-                            onChange={(e) => setNewGuestName(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-                        />
-                         <div className="flex gap-2">
-                             <select 
-                                className="flex-1 p-2 rounded bg-slate-900 border border-slate-600 text-white focus:border-teal-500 outline-none text-sm"
-                                value={selectedGroup}
-                                onChange={(e) => setSelectedGroup(e.target.value)}
-                             >
-                                 {groups.map(g => (
-                                     <option key={g.id} value={g.name}>{g.name}</option>
-                                 ))}
-                             </select>
-                             <button 
-                                onClick={handleAdd}
-                                className="bg-teal-600 hover:bg-teal-500 text-white p-2 rounded transition-colors"
-                             >
-                                 <Plus size={20} />
-                             </button>
+                        <div>
+                            <label className="text-xs text-slate-400 block mb-1">Nome</label>
+                            <input 
+                                type="text" 
+                                placeholder="Nome do convidado" 
+                                className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white focus:border-teal-500 outline-none text-sm"
+                                value={newGuestName}
+                                onChange={(e) => setNewGuestName(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                            />
+                        </div>
+                         
+                        <div className="grid grid-cols-2 gap-2">
+                             <div>
+                                <label className="text-xs text-slate-400 block mb-1">Grupo (Cor)</label>
+                                <select 
+                                    className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white focus:border-teal-500 outline-none text-sm"
+                                    value={selectedGroup}
+                                    onChange={(e) => setSelectedGroup(e.target.value)}
+                                >
+                                    {groups.map(g => (
+                                        <option key={g.id} value={g.name}>{g.name}</option>
+                                    ))}
+                                </select>
+                             </div>
+                             <div>
+                                <label className="text-xs text-slate-400 block mb-1">Conectado a</label>
+                                <select 
+                                    className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white focus:border-teal-500 outline-none text-sm"
+                                    value={selectedParentId}
+                                    onChange={(e) => setSelectedParentId(e.target.value)}
+                                >
+                                    <option value="">(Ninguém)</option>
+                                    {getParentOptions().map(g => (
+                                        <option key={g.id} value={g.id}>{g.name}</option>
+                                    ))}
+                                </select>
+                             </div>
                          </div>
+                         <button 
+                            onClick={handleAdd}
+                            className="w-full bg-teal-600 hover:bg-teal-500 text-white p-2 rounded transition-colors flex justify-center gap-2 items-center"
+                        >
+                                <Plus size={16} /> Adicionar
+                        </button>
                     </div>
                 )}
 
@@ -357,23 +390,39 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
                             value={bulkText}
                             onChange={(e) => setBulkText(e.target.value)}
                         />
-                         <div className="flex gap-2">
-                             <select 
-                                className="flex-1 p-2 rounded bg-slate-900 border border-slate-600 text-white focus:border-teal-500 outline-none text-sm"
-                                value={selectedGroup}
-                                onChange={(e) => setSelectedGroup(e.target.value)}
-                             >
-                                 {groups.map(g => (
-                                     <option key={g.id} value={g.name}>{g.name}</option>
-                                 ))}
-                             </select>
-                             <button 
-                                onClick={handleBulkAdd}
-                                className="bg-teal-600 hover:bg-teal-500 text-white px-3 py-2 rounded text-sm font-medium transition-colors"
-                             >
-                                 Adicionar
-                             </button>
+                         <div className="grid grid-cols-2 gap-2">
+                             <div>
+                                <label className="text-xs text-slate-400 block mb-1">Grupo</label>
+                                <select 
+                                    className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white focus:border-teal-500 outline-none text-sm"
+                                    value={selectedGroup}
+                                    onChange={(e) => setSelectedGroup(e.target.value)}
+                                >
+                                    {groups.map(g => (
+                                        <option key={g.id} value={g.name}>{g.name}</option>
+                                    ))}
+                                </select>
+                             </div>
+                             <div>
+                                <label className="text-xs text-slate-400 block mb-1">Conectado a</label>
+                                <select 
+                                    className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white focus:border-teal-500 outline-none text-sm"
+                                    value={selectedParentId}
+                                    onChange={(e) => setSelectedParentId(e.target.value)}
+                                >
+                                    <option value="">(Ninguém)</option>
+                                    {getParentOptions().map(g => (
+                                        <option key={g.id} value={g.id}>{g.name}</option>
+                                    ))}
+                                </select>
+                             </div>
                          </div>
+                        <button 
+                            onClick={handleBulkAdd}
+                            className="w-full bg-teal-600 hover:bg-teal-500 text-white px-3 py-2 rounded text-sm font-medium transition-colors"
+                        >
+                            Adicionar em Massa
+                        </button>
                     </div>
                 )}
 
@@ -442,6 +491,22 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
                                     <option key={g.id} value={g.name}>{g.name}</option>
                                 ))}
                             </select>
+                        </div>
+                        <div>
+                            <label className="text-xs text-slate-400 block mb-1">Conectado a (Pai/Referência)</label>
+                            <div className="flex gap-2">
+                                <LinkIcon size={16} className="text-slate-500 mt-2" />
+                                <select 
+                                    className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white focus:border-teal-500 outline-none text-sm"
+                                    value={editParentId}
+                                    onChange={(e) => setEditParentId(e.target.value)}
+                                >
+                                    <option value="">(Ninguém)</option>
+                                    {getParentOptions(selectedGuest.id).map(g => (
+                                        <option key={g.id} value={g.id}>{g.name}</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
                         
                         <div className="flex items-center justify-between pt-2">
@@ -521,7 +586,7 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
         <div className="flex-1 relative bg-slate-900 overflow-hidden" ref={containerRef}>
             <div className="absolute top-4 left-4 z-0 pointer-events-none opacity-50">
                 <div className="flex gap-4 mt-2">
-                     <p className="text-xs text-slate-400">Clique para editar • Arraste para organizar</p>
+                     <p className="text-xs text-slate-400">Arraste para organizar • Use o zoom</p>
                 </div>
             </div>
             
