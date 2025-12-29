@@ -54,13 +54,5 @@ export const INITIAL_STATE: AppState = {
   budgetTotal: 60000,
   expenses: generateInitialExpenses(),
   guestGroups: INITIAL_GROUPS,
-  guests: [
-    { id: 'g0', name: 'O Casal', group: 'Casal', confirmed: true },
-    { id: 'g1', name: 'Mãe da Noiva', group: 'Família Noiva', confirmed: true, parentId: 'g0' },
-    { id: 'g2', name: 'Pai da Noiva', group: 'Família Noiva', confirmed: true, parentId: 'g0' },
-    { id: 'g3', name: 'Mãe do Noivo', group: 'Família Noivo', confirmed: true, parentId: 'g0' },
-    { id: 'g4', name: 'Pai do Noivo', group: 'Família Noivo', confirmed: true, parentId: 'g0' },
-    { id: 'g5', name: 'Tia Maria', group: 'Família Noiva', confirmed: false, parentId: 'g1' },
-    { id: 'g6', name: 'Tio João', group: 'Família Noiva', confirmed: false, parentId: 'g1' },
-  ]
+  guests: []
 };
