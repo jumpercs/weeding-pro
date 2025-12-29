@@ -1,7 +1,54 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import { Guest, GuestGroup } from '../types';
-import { Plus, ListPlus, Palette, Trash2, CheckCircle, Save, Edit3, Link as LinkIcon, Settings2, RotateCcw, Maximize2, ZoomIn, ZoomOut } from 'lucide-react';
+import { Plus, ListPlus, Palette, Trash2, CheckCircle, Save, Edit3, Link as LinkIcon, Settings2, RotateCcw, Maximize2, ZoomIn, ZoomOut, Upload, Image as ImageIcon, X } from 'lucide-react';
+
+// Função para comprimir e redimensionar imagem
+const compressImage = (file: File, maxSize: number = 200, quality: number = 0.8): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        
+        // Redimensionar mantendo proporção
+        if (width > height) {
+          if (width > maxSize) {
+            height = (height * maxSize) / width;
+            width = maxSize;
+          }
+        } else {
+          if (height > maxSize) {
+            width = (width * maxSize) / height;
+            height = maxSize;
+          }
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
+        
+        // Desenhar imagem redimensionada
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        // Converter para base64 JPEG comprimido
+        const base64 = canvas.toDataURL('image/jpeg', quality);
+        resolve(base64);
+      };
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = e.target?.result as string;
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+};
 
 interface GuestGraphProps {
   guests: Guest[];
@@ -21,7 +68,8 @@ interface GraphNode extends d3.SimulationNodeDatum {
   name: string;
   confirmed: boolean;
   color: string;
-  priority: 1 | 2 | 3;
+  priority: 1 | 2 | 3 | 4 | 5;
+  photoUrl?: string;
   x?: number;
   y?: number;
   vx?: number;
@@ -75,10 +123,11 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
   const [newGuestName, setNewGuestName] = useState('');
   const [selectedGroup, setSelectedGroup] = useState(groups[0]?.name || 'Família');
   const [selectedParentId, setSelectedParentId] = useState<string>('');
+  const [selectedPhotoUrl, setSelectedPhotoUrl] = useState('');
   
   // Bulk Input State
   const [bulkText, setBulkText] = useState('');
-  const [selectedPriority, setSelectedPriority] = useState<1 | 2 | 3>(2);
+  const [selectedPriority, setSelectedPriority] = useState<1 | 2 | 3 | 4 | 5>(3);
 
   // Group Input State
   const [newGroupName, setNewGroupName] = useState('');
@@ -88,7 +137,8 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
   const [editName, setEditName] = useState('');
   const [editGroup, setEditGroup] = useState('');
   const [editParentId, setEditParentId] = useState<string>('');
-  const [editPriority, setEditPriority] = useState<1 | 2 | 3>(2);
+  const [editPriority, setEditPriority] = useState<1 | 2 | 3 | 4 | 5>(3);
+  const [editPhotoUrl, setEditPhotoUrl] = useState('');
 
   // Derived state for the selected guest object
   const selectedGuest = useMemo(() => 
@@ -101,7 +151,8 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
           setEditName(selectedGuest.name);
           setEditGroup(selectedGuest.group);
           setEditParentId(selectedGuest.parentId || '');
-          setEditPriority(selectedGuest.priority || 2);
+          setEditPriority(selectedGuest.priority || 3);
+          setEditPhotoUrl(selectedGuest.photoUrl || '');
           setSidebarTab('edit');
       } else if (sidebarTab === 'edit') {
           setSidebarTab('add');
@@ -125,7 +176,8 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
       name: g.name,
       confirmed: g.confirmed,
       color: getColor(g.group),
-      priority: g.priority || 2,
+      priority: g.priority || 3,
+      photoUrl: g.photoUrl,
     }));
 
     const graphLinks: GraphLink[] = guests
@@ -148,9 +200,9 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
   }, [guests, groups]);
 
 
-  // Função para calcular o raio baseado na prioridade
-  const getRadius = useCallback((priority: 1 | 2 | 3) => {
-    const sizes = { 1: 8, 2: 14, 3: 22 };
+  // Função para calcular o raio baseado na prioridade (5 níveis)
+  const getRadius = useCallback((priority: 1 | 2 | 3 | 4 | 5) => {
+    const sizes = { 1: 6, 2: 10, 3: 14, 4: 19, 5: 25 };
     return sizes[priority] * nodeScale;
   }, [nodeScale]);
 
@@ -221,24 +273,60 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
         .attr("stroke-width", 2)
         .attr("stroke-dasharray", "3,3");
 
-    // Main Circle - tamanho baseado na prioridade
-    node.append("circle")
-      .attr("r", d => getRadius(d.priority))
-      .attr("fill", d => d.color)
-      .attr("stroke", "#1e293b")
-      .attr("stroke-width", 2)
-      .attr("opacity", d => d.confirmed ? 1 : 0.6)
-      .style("cursor", "pointer");
+    // Criar defs para clipPaths das fotos
+    const defs = g.append("defs");
+    nodes.forEach(n => {
+      defs.append("clipPath")
+        .attr("id", `clip-${n.id}`)
+        .append("circle")
+        .attr("r", getRadius(n.priority));
+    });
+
+    // Main Circle/Photo - tamanho baseado na prioridade
+    node.each(function(d) {
+      const nodeGroup = d3.select(this);
+      const radius = getRadius(d.priority);
+      
+      if (d.photoUrl) {
+        // Imagem circular
+        nodeGroup.append("image")
+          .attr("xlink:href", d.photoUrl)
+          .attr("x", -radius)
+          .attr("y", -radius)
+          .attr("width", radius * 2)
+          .attr("height", radius * 2)
+          .attr("clip-path", `url(#clip-${d.id})`)
+          .attr("preserveAspectRatio", "xMidYMid slice")
+          .style("cursor", "pointer");
+        
+        // Borda da foto com cor do grupo
+        nodeGroup.append("circle")
+          .attr("r", radius)
+          .attr("fill", "none")
+          .attr("stroke", d.color)
+          .attr("stroke-width", 3)
+          .attr("opacity", d.confirmed ? 1 : 0.6);
+      } else {
+        // Círculo colorido (comportamento original)
+        nodeGroup.append("circle")
+          .attr("r", radius)
+          .attr("fill", d.color)
+          .attr("stroke", "#1e293b")
+          .attr("stroke-width", 2)
+          .attr("opacity", d.confirmed ? 1 : 0.6)
+          .style("cursor", "pointer");
+      }
+    });
 
     // Labels - posição ajustada ao tamanho do círculo
-    const baseFontSizes = { 1: 10, 2: 11, 3: 13 };
+    const baseFontSizes: Record<number, number> = { 1: 9, 2: 10, 3: 11, 4: 12, 5: 14 };
     node.append("text")
       .text(d => d.name)
       .attr("dy", d => getRadius(d.priority) + 14) // Position below circle based on size
       .attr("text-anchor", "middle")
       .attr("fill", "#e2e8f0")
       .style("font-size", d => `${baseFontSizes[d.priority] * labelSize}px`)
-      .style("font-weight", d => d.priority === 3 ? "600" : "normal")
+      .style("font-weight", d => d.priority >= 4 ? "600" : "normal")
       .style("pointer-events", "none")
       .style("text-shadow", "0px 1px 4px #000");
 
@@ -330,9 +418,11 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
           group: selectedGroup,
           confirmed: false,
           parentId: selectedParentId || undefined,
-          priority: selectedPriority
+          priority: selectedPriority,
+          photoUrl: selectedPhotoUrl || undefined
       });
       setNewGuestName('');
+      setSelectedPhotoUrl('');
       // Keep connection/group for next addition to make creating families easier
   };
 
@@ -369,7 +459,8 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
           name: editName,
           group: editGroup,
           parentId: editParentId || undefined,
-          priority: editPriority
+          priority: editPriority,
+          photoUrl: editPhotoUrl || undefined
       });
   };
 
@@ -459,23 +550,99 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
                          </div>
                          <div>
                             <label className="text-xs text-slate-400 block mb-1">Prioridade (Tamanho)</label>
-                            <div className="flex gap-2">
-                                {([1, 2, 3] as const).map(p => (
-                                    <button
-                                        key={p}
-                                        type="button"
-                                        onClick={() => setSelectedPriority(p)}
-                                        className={`flex-1 py-2 px-3 rounded text-sm font-medium transition-all flex items-center justify-center gap-1 ${
-                                            selectedPriority === p 
-                                                ? 'bg-teal-600 text-white' 
-                                                : 'bg-slate-900 border border-slate-600 text-slate-400 hover:border-slate-500'
-                                        }`}
-                                    >
-                                        <span className={`inline-block rounded-full bg-current ${p === 1 ? 'w-2 h-2' : p === 2 ? 'w-3 h-3' : 'w-4 h-4'}`}></span>
-                                        {p === 1 ? 'Baixa' : p === 2 ? 'Média' : 'Alta'}
-                                    </button>
-                                ))}
+                            <div className="flex gap-1">
+                                {([1, 2, 3, 4, 5] as const).map(p => {
+                                    const labels = { 1: '1', 2: '2', 3: '3', 4: '4', 5: '5' };
+                                    const sizes = { 1: 'w-2 h-2', 2: 'w-2.5 h-2.5', 3: 'w-3 h-3', 4: 'w-3.5 h-3.5', 5: 'w-4 h-4' };
+                                    return (
+                                        <button
+                                            key={p}
+                                            type="button"
+                                            onClick={() => setSelectedPriority(p)}
+                                            className={`flex-1 py-2 px-1 rounded text-xs font-medium transition-all flex flex-col items-center justify-center gap-1 ${
+                                                selectedPriority === p 
+                                                    ? 'bg-teal-600 text-white' 
+                                                    : 'bg-slate-900 border border-slate-600 text-slate-400 hover:border-slate-500'
+                                            }`}
+                                            title={p === 1 ? 'Muito Baixa' : p === 2 ? 'Baixa' : p === 3 ? 'Média' : p === 4 ? 'Alta' : 'Muito Alta'}
+                                        >
+                                            <span className={`inline-block rounded-full bg-current ${sizes[p]}`}></span>
+                                            <span>{labels[p]}</span>
+                                        </button>
+                                    );
+                                })}
                             </div>
+                            <div className="flex justify-between text-[9px] text-slate-500 mt-1">
+                                <span>Menor</span>
+                                <span>Maior</span>
+                            </div>
+                         </div>
+                         <div>
+                            <label className="text-xs text-slate-400 block mb-1">Foto</label>
+                            {selectedPhotoUrl ? (
+                                <div className="flex gap-2 items-center p-2 bg-slate-900 rounded border border-slate-600">
+                                    <img 
+                                        src={selectedPhotoUrl} 
+                                        alt="Preview" 
+                                        className="w-12 h-12 rounded-full object-cover border-2 border-teal-500 shrink-0"
+                                    />
+                                    <span className="text-xs text-slate-400 flex-1 truncate">Foto adicionada</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedPhotoUrl('')}
+                                        className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-900/20 rounded"
+                                        title="Remover foto"
+                                    >
+                                        <X size={16} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    <label className="flex items-center justify-center gap-2 p-3 bg-slate-900 border-2 border-dashed border-slate-600 rounded cursor-pointer hover:border-teal-500 hover:bg-slate-800 transition-colors">
+                                        <Upload size={18} className="text-slate-400" />
+                                        <span className="text-sm text-slate-400">Arraste ou clique para enviar</span>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) {
+                                                    try {
+                                                        const compressed = await compressImage(file);
+                                                        setSelectedPhotoUrl(compressed);
+                                                    } catch (err) {
+                                                        console.error('Erro ao processar imagem:', err);
+                                                    }
+                                                }
+                                                e.target.value = '';
+                                            }}
+                                        />
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <input 
+                                            type="text" 
+                                            placeholder="Ou cole URL..." 
+                                            className="flex-1 p-2 rounded bg-slate-900 border border-slate-600 text-white focus:border-teal-500 outline-none text-xs"
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    setSelectedPhotoUrl(e.currentTarget.value);
+                                                    e.currentTarget.value = '';
+                                                }
+                                            }}
+                                            onBlur={(e) => {
+                                                if (e.target.value) {
+                                                    setSelectedPhotoUrl(e.target.value);
+                                                    e.target.value = '';
+                                                }
+                                            }}
+                                        />
+                                        <div className="p-2 text-slate-500">
+                                            <ImageIcon size={16} />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                          </div>
                          <button 
                             onClick={handleAdd}
@@ -523,21 +690,26 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
                          </div>
                          <div>
                             <label className="text-xs text-slate-400 block mb-1">Prioridade</label>
-                            <div className="flex gap-2">
-                                {([1, 2, 3] as const).map(p => (
-                                    <button
-                                        key={p}
-                                        type="button"
-                                        onClick={() => setSelectedPriority(p)}
-                                        className={`flex-1 py-1.5 px-2 rounded text-xs font-medium transition-all flex items-center justify-center gap-1 ${
-                                            selectedPriority === p 
-                                                ? 'bg-teal-600 text-white' 
-                                                : 'bg-slate-900 border border-slate-600 text-slate-400 hover:border-slate-500'
-                                        }`}
-                                    >
-                                        {p === 1 ? 'Baixa' : p === 2 ? 'Média' : 'Alta'}
-                                    </button>
-                                ))}
+                            <div className="flex gap-1">
+                                {([1, 2, 3, 4, 5] as const).map(p => {
+                                    const sizes = { 1: 'w-1.5 h-1.5', 2: 'w-2 h-2', 3: 'w-2.5 h-2.5', 4: 'w-3 h-3', 5: 'w-3.5 h-3.5' };
+                                    return (
+                                        <button
+                                            key={p}
+                                            type="button"
+                                            onClick={() => setSelectedPriority(p)}
+                                            className={`flex-1 py-1.5 px-1 rounded text-[10px] font-medium transition-all flex flex-col items-center justify-center gap-0.5 ${
+                                                selectedPriority === p 
+                                                    ? 'bg-teal-600 text-white' 
+                                                    : 'bg-slate-900 border border-slate-600 text-slate-400 hover:border-slate-500'
+                                            }`}
+                                            title={p === 1 ? 'Muito Baixa' : p === 2 ? 'Baixa' : p === 3 ? 'Média' : p === 4 ? 'Alta' : 'Muito Alta'}
+                                        >
+                                            <span className={`inline-block rounded-full bg-current ${sizes[p]}`}></span>
+                                            <span>{p}</span>
+                                        </button>
+                                    );
+                                })}
                             </div>
                          </div>
                         <button 
@@ -633,23 +805,116 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
                         </div>
                         <div>
                             <label className="text-xs text-slate-400 block mb-1">Prioridade (Tamanho)</label>
-                            <div className="flex gap-2">
-                                {([1, 2, 3] as const).map(p => (
-                                    <button
-                                        key={p}
-                                        type="button"
-                                        onClick={() => setEditPriority(p)}
-                                        className={`flex-1 py-2 px-3 rounded text-sm font-medium transition-all flex items-center justify-center gap-1 ${
-                                            editPriority === p 
-                                                ? 'bg-teal-600 text-white' 
-                                                : 'bg-slate-900 border border-slate-600 text-slate-400 hover:border-slate-500'
-                                        }`}
-                                    >
-                                        <span className={`inline-block rounded-full bg-current ${p === 1 ? 'w-2 h-2' : p === 2 ? 'w-3 h-3' : 'w-4 h-4'}`}></span>
-                                        {p === 1 ? 'Baixa' : p === 2 ? 'Média' : 'Alta'}
-                                    </button>
-                                ))}
+                            <div className="flex gap-1">
+                                {([1, 2, 3, 4, 5] as const).map(p => {
+                                    const labels = { 1: '1', 2: '2', 3: '3', 4: '4', 5: '5' };
+                                    const sizes = { 1: 'w-2 h-2', 2: 'w-2.5 h-2.5', 3: 'w-3 h-3', 4: 'w-3.5 h-3.5', 5: 'w-4 h-4' };
+                                    return (
+                                        <button
+                                            key={p}
+                                            type="button"
+                                            onClick={() => setEditPriority(p)}
+                                            className={`flex-1 py-2 px-1 rounded text-xs font-medium transition-all flex flex-col items-center justify-center gap-1 ${
+                                                editPriority === p 
+                                                    ? 'bg-teal-600 text-white' 
+                                                    : 'bg-slate-900 border border-slate-600 text-slate-400 hover:border-slate-500'
+                                            }`}
+                                            title={p === 1 ? 'Muito Baixa' : p === 2 ? 'Baixa' : p === 3 ? 'Média' : p === 4 ? 'Alta' : 'Muito Alta'}
+                                        >
+                                            <span className={`inline-block rounded-full bg-current ${sizes[p]}`}></span>
+                                            <span>{labels[p]}</span>
+                                        </button>
+                                    );
+                                })}
                             </div>
+                            <div className="flex justify-between text-[9px] text-slate-500 mt-1">
+                                <span>Menor</span>
+                                <span>Maior</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs text-slate-400 block mb-1">Foto</label>
+                            {editPhotoUrl ? (
+                                <div className="flex gap-2 items-center p-2 bg-slate-900 rounded border border-slate-600">
+                                    <img 
+                                        src={editPhotoUrl} 
+                                        alt={editName} 
+                                        className="w-12 h-12 rounded-full object-cover border-2 border-teal-500 shrink-0"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                        <span className="text-xs text-slate-400 block truncate">Foto atual</span>
+                                        <label className="text-[10px] text-teal-400 cursor-pointer hover:underline">
+                                            Trocar foto
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                className="hidden"
+                                                onChange={async (e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (file) {
+                                                        try {
+                                                            const compressed = await compressImage(file);
+                                                            setEditPhotoUrl(compressed);
+                                                        } catch (err) {
+                                                            console.error('Erro ao processar imagem:', err);
+                                                        }
+                                                    }
+                                                    e.target.value = '';
+                                                }}
+                                            />
+                                        </label>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditPhotoUrl('')}
+                                        className="p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-900/20 rounded shrink-0"
+                                        title="Remover foto"
+                                    >
+                                        <X size={16} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    <label className="flex items-center justify-center gap-2 p-3 bg-slate-900 border-2 border-dashed border-slate-600 rounded cursor-pointer hover:border-teal-500 hover:bg-slate-800 transition-colors">
+                                        <Upload size={18} className="text-slate-400" />
+                                        <span className="text-sm text-slate-400">Arraste ou clique</span>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) {
+                                                    try {
+                                                        const compressed = await compressImage(file);
+                                                        setEditPhotoUrl(compressed);
+                                                    } catch (err) {
+                                                        console.error('Erro ao processar imagem:', err);
+                                                    }
+                                                }
+                                                e.target.value = '';
+                                            }}
+                                        />
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Ou cole URL aqui..." 
+                                        className="w-full p-2 rounded bg-slate-900 border border-slate-600 text-white focus:border-teal-500 outline-none text-xs"
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                setEditPhotoUrl(e.currentTarget.value);
+                                                e.currentTarget.value = '';
+                                            }
+                                        }}
+                                        onBlur={(e) => {
+                                            if (e.target.value) {
+                                                setEditPhotoUrl(e.target.value);
+                                                e.target.value = '';
+                                            }
+                                        }}
+                                    />
+                                </div>
+                            )}
                         </div>
                         
                         <div className="flex items-center justify-between pt-2">
@@ -710,11 +975,28 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
                             style={{ borderLeftColor: selectedNodeId === g.id ? 'white' : (groups.find(grp => grp.name === g.group)?.color || '#64748b') }}
                             onClick={() => setSelectedNodeId(g.id)}
                         >
-                            <div className="flex flex-col">
-                                <span className="text-sm font-medium text-slate-200">{g.name}</span>
-                                <span className="text-[10px] uppercase tracking-wider text-slate-500" style={{color: groups.find(grp => grp.name === g.group)?.color}}>{g.group}</span>
-                            </div>
                             <div className="flex items-center gap-2">
+                                {g.photoUrl ? (
+                                    <img 
+                                        src={g.photoUrl} 
+                                        alt={g.name}
+                                        className="w-8 h-8 rounded-full object-cover border-2 shrink-0"
+                                        style={{ borderColor: groups.find(grp => grp.name === g.group)?.color || '#64748b' }}
+                                    />
+                                ) : (
+                                    <div 
+                                        className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold text-white"
+                                        style={{ backgroundColor: groups.find(grp => grp.name === g.group)?.color || '#64748b' }}
+                                    >
+                                        {g.name.charAt(0).toUpperCase()}
+                                    </div>
+                                )}
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-sm font-medium text-slate-200 truncate">{g.name}</span>
+                                    <span className="text-[10px] uppercase tracking-wider text-slate-500" style={{color: groups.find(grp => grp.name === g.group)?.color}}>{g.group}</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
                                 <div className={`${g.confirmed ? "text-teal-400" : "text-slate-600"}`}>
                                     {g.confirmed ? <CheckCircle size={14} /> : <div className="w-3 h-3 rounded-full border border-slate-600"></div>}
                                 </div>
@@ -763,18 +1045,26 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
             {/* Legend Overlay */}
             <div className="absolute bottom-4 right-4 bg-slate-800/80 p-3 rounded border border-slate-700 backdrop-blur-sm pointer-events-none">
                 <h5 className="text-[10px] font-bold uppercase text-slate-400 mb-2">Tamanhos</h5>
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-slate-400"></div>
+                        <span className="text-[9px] text-slate-400">1 - Muito Baixa</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-slate-400"></div>
+                        <span className="text-[9px] text-slate-400">2 - Baixa</span>
+                    </div>
                     <div className="flex items-center gap-2">
                         <div className="w-3 h-3 rounded-full bg-slate-400"></div>
-                        <span className="text-[10px] text-slate-400">Baixa prioridade</span>
+                        <span className="text-[9px] text-slate-400">3 - Média</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="w-4 h-4 rounded-full bg-slate-400"></div>
-                        <span className="text-[10px] text-slate-400">Média prioridade</span>
+                        <span className="text-[9px] text-slate-400">4 - Alta</span>
                     </div>
                     <div className="flex items-center gap-2">
                         <div className="w-5 h-5 rounded-full bg-slate-400"></div>
-                        <span className="text-[10px] text-slate-400">Alta prioridade</span>
+                        <span className="text-[9px] text-slate-400">5 - Muito Alta</span>
                     </div>
                 </div>
             </div>

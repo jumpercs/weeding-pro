@@ -20,7 +20,8 @@ export interface Guest {
   group: string; // Corresponde ao GuestGroup.name
   confirmed: boolean;
   parentId?: string; // ID do convidado ao qual este está conectado
-  priority?: 1 | 2 | 3; // 1 = baixa, 2 = média, 3 = alta (maior no grafo)
+  priority?: 1 | 2 | 3 | 4 | 5; // 1 = muito baixa, 2 = baixa, 3 = média, 4 = alta, 5 = muito alta (maior no grafo)
+  photoUrl?: string; // URL da foto do convidado (base64 ou URL externa)
 }
 
 export interface AppState {
