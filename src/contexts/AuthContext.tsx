@@ -1,0 +1,215 @@
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { User, Session } from '@supabase/supabase-js';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import type { Profile, Subscription } from '../lib/database.types';
+
+interface AuthContextType {
+  user: User | null;
+  profile: Profile | null;
+  subscription: Subscription | null;
+  session: Session | null;
+  loading: boolean;
+  isConfigured: boolean;
+  signUp: (email: string, password: string, name?: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signInWithGoogle: () => Promise<{ error: Error | null }>;
+  signOut: () => Promise<void>;
+  isPro: boolean;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+  const loadingRef = React.useRef(true); // Track loading state for timeout
+  const isConfigured = isSupabaseConfigured();
+  
+  // Keep ref in sync
+  React.useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  useEffect(() => {
+    if (!isConfigured) {
+      setLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    // Get initial session with timeout
+    const initAuth = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (!isMounted) return;
+        
+        if (error) {
+          console.error('Error getting session:', error);
+          setLoading(false);
+          return;
+        }
+        
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          await fetchUserData(session.user.id);
+        } else {
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Auth init error:', error);
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    // Timeout to prevent infinite loading (15s is enough for slow connections)
+    const timeout = setTimeout(() => {
+      if (isMounted && loadingRef.current) {
+        console.warn('Auth loading timeout - forcing complete');
+        setLoading(false);
+      }
+    }, 15000);
+
+    initAuth();
+
+    // Listen for auth changes
+    const { data: { subscription: authSubscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if (!isMounted) return;
+        
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          await fetchUserData(session.user.id);
+        } else {
+          setProfile(null);
+          setSubscription(null);
+          setLoading(false);
+        }
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeout);
+      authSubscription.unsubscribe();
+    };
+  }, [isConfigured]);
+
+  const fetchUserData = async (userId: string) => {
+    try {
+      // Fetch profile
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      
+      if (profileData) {
+        setProfile(profileData);
+      }
+
+      // Fetch subscription
+      const { data: subscriptionData } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+      
+      if (subscriptionData) {
+        setSubscription(subscriptionData);
+      }
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const signUp = async (email: string, password: string, name?: string) => {
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { name },
+        },
+      });
+      return { error };
+    } catch (error) {
+      return { error: error as Error };
+    }
+  };
+
+  const signIn = async (email: string, password: string) => {
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      return { error };
+    } catch (error) {
+      return { error: error as Error };
+    }
+  };
+
+  const signInWithGoogle = async () => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/dashboard`,
+        },
+      });
+      return { error };
+    } catch (error) {
+      return { error: error as Error };
+    }
+  };
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setProfile(null);
+    setSubscription(null);
+    setSession(null);
+  };
+
+  const isPro = subscription?.plan !== 'free' && subscription?.status === 'active';
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        subscription,
+        session,
+        loading,
+        isConfigured,
+        signUp,
+        signIn,
+        signInWithGoogle,
+        signOut,
+        isPro,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
