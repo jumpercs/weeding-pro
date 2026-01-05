@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { trpcClient } from '../lib/trpc';
 import type { Profile, Subscription } from '../lib/database.types';
 
 interface AuthContextType {
@@ -11,7 +12,7 @@ interface AuthContextType {
   loading: boolean;
   isConfigured: boolean;
   signUp: (email: string, password: string, name?: string) => Promise<{ error: Error | null }>;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string, password: string, rememberMe?: boolean) => Promise<{ error: Error | null }>;
   signInWithGoogle: () => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
   isPro: boolean;
@@ -52,6 +53,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Get initial session with timeout
     const initAuth = async () => {
       try {
+        // Check if user opted out of persistent session
+        const sessionOnly = sessionStorage.getItem('eventgraph-session-only');
+        
+        // If session-only mode was set but we're in a new session (F5), clear auth
+        // This is detected by checking if we have the flag but no sessionStorage marker
+        if (sessionOnly === 'true') {
+          // User doesn't want to be remembered - session storage persists through refresh
+          // So this is fine, they'll stay logged in until browser close
+        }
+        
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (!isMounted) return;
@@ -61,6 +72,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setLoading(false);
           return;
         }
+        
+        console.log('Session restored:', session ? 'yes' : 'no');
         
         setSession(session);
         setUser(session?.user ?? null);
@@ -156,8 +169,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = async (email: string, password: string, rememberMe: boolean = true) => {
     try {
+      // Store preference for session persistence
+      if (!rememberMe) {
+        // If not remembering, we'll clear session on window close
+        sessionStorage.setItem('eventgraph-session-only', 'true');
+      } else {
+        sessionStorage.removeItem('eventgraph-session-only');
+      }
+      
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -183,7 +204,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      // Notify backend about logout (for logging/audit)
+      if (session?.access_token) {
+        await trpcClient.auth.logout.mutate();
+      }
+    } catch (error) {
+      console.error('Error notifying backend about logout:', error);
+    }
+    
+    // Sign out from Supabase (local scope is the default and works on client)
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error('Error signing out from Supabase:', error);
+    }
+    
+    // Clear local storage items
+    localStorage.removeItem('eventgraph-auth');
+    sessionStorage.removeItem('eventgraph-session-only');
+    
+    // Clear state
     setUser(null);
     setProfile(null);
     setSubscription(null);

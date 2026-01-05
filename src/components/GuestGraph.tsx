@@ -326,7 +326,7 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
   const handleAdd = () => {
     if (!newGuestName.trim()) return;
     onAddGuest({
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       name: newGuestName,
       groupId: selectedGroupId,
       confirmed: false,
@@ -341,8 +341,8 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
   const handleBulkAdd = () => {
     if (!bulkText.trim()) return;
     const names = bulkText.split('\n').filter(n => n.trim().length > 0);
-    const newGuests = names.map((name, idx) => ({
-      id: `${Date.now()}-${idx}`,
+    const newGuests = names.map((name) => ({
+      id: crypto.randomUUID(),
       name: name.trim(),
       groupId: selectedGroupId,
       confirmed: false,
@@ -356,7 +356,7 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
 
   const handleCreateGroup = () => {
     if (!newGroupName.trim()) return;
-    onAddGroup({ id: Date.now().toString(), name: newGroupName, color: newGroupColor });
+    onAddGroup({ id: crypto.randomUUID(), name: newGroupName, color: newGroupColor });
     setNewGroupName('');
   };
 

@@ -9,6 +9,7 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true); // Default to true
   const { signIn, signInWithGoogle, isConfigured } = useAuth();
   const navigate = useNavigate();
 
@@ -23,7 +24,7 @@ export const LoginPage: React.FC = () => {
     }
 
     setLoading(true);
-    const { error } = await signIn(email, password);
+    const { error } = await signIn(email, password, rememberMe);
     setLoading(false);
 
     if (error) {
@@ -145,7 +146,12 @@ export const LoginPage: React.FC = () => {
 
             <div className="flex items-center justify-between">
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="w-4 h-4 rounded border-slate-600 text-teal-600 focus:ring-teal-500 bg-slate-800" />
+                <input 
+                  type="checkbox" 
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-600 text-teal-600 focus:ring-teal-500 bg-slate-800" 
+                />
                 <span className="text-sm text-slate-400">Lembrar de mim</span>
               </label>
               <a href="#" className="text-sm text-teal-400 hover:text-teal-300 transition-colors">

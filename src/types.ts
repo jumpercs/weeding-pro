@@ -31,6 +31,26 @@ export interface AppState {
   guestGroups: GuestGroup[];
 }
 
+// Delta tracking types for optimized sync
+export interface DeltaChanges {
+  budgetTotal?: number;
+  guests: {
+    created: Guest[];
+    updated: Guest[];
+    deleted: string[];
+  };
+  guestGroups: {
+    created: GuestGroup[];
+    updated: GuestGroup[];
+    deleted: string[];
+  };
+  expenses: {
+    created: ExpenseItem[];
+    updated: ExpenseItem[];
+    deleted: string[];
+  };
+}
+
 export type Action =
   | { type: 'SET_STATE'; payload: AppState }
   | { type: 'UPDATE_BUDGET_TOTAL'; payload: number }

@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { TRPCProvider } from './providers/TRPCProvider';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -106,9 +107,10 @@ function AppRoutes() {
 function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-        <Toaster
+      <TRPCProvider>
+        <AuthProvider>
+          <AppRoutes />
+          <Toaster
           position="bottom-right"
           toastOptions={{
             duration: 3000,
@@ -129,9 +131,10 @@ function App() {
                 secondary: '#f1f5f9',
               },
             },
-          }}
-        />
-      </AuthProvider>
+            }}
+          />
+        </AuthProvider>
+      </TRPCProvider>
     </BrowserRouter>
   );
 }

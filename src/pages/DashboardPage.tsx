@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { 
   Plus, 
@@ -18,79 +18,24 @@ import {
   Cake
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import type { Event } from '../lib/database.types';
+import { useEvents, useDeleteEvent, useCreateEvent } from '../hooks/useEvents';
 import toast from 'react-hot-toast';
 
-// Demo events for when Supabase is not configured
-const DEMO_EVENTS: Event[] = [
-  {
-    id: 'demo-1',
-    user_id: 'demo',
-    name: 'Meu Casamento',
-    type: 'wedding',
-    event_date: '2026-06-15',
-    budget_total: 60000,
-    description: 'Casamento dos sonhos',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  },
-];
-
 export const DashboardPage: React.FC = () => {
-  const { user, profile, subscription, signOut, isPro, isConfigured } = useAuth();
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { user, profile, subscription, signOut, isPro } = useAuth();
+  const { events, isLoading: loading } = useEvents();
+  const deleteEventMutation = useDeleteEvent();
   const [showNewEventModal, setShowNewEventModal] = useState(false);
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    fetchEvents();
-  }, [isConfigured]);
-
-  const fetchEvents = async () => {
-    if (!isConfigured) {
-      setEvents(DEMO_EVENTS);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('events')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setEvents(data || []);
-    } catch (error) {
-      console.error('Error fetching events:', error);
-      toast.error('Erro ao carregar eventos');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleDeleteEvent = async (eventId: string) => {
     if (!confirm('Tem certeza que deseja excluir este evento? Esta ação não pode ser desfeita.')) {
       return;
     }
 
-    if (!isConfigured) {
-      setEvents(events.filter(e => e.id !== eventId));
-      toast.success('Evento excluído');
-      return;
-    }
-
     try {
-      const { error } = await supabase
-        .from('events')
-        .delete()
-        .eq('id', eventId);
-
-      if (error) throw error;
-      setEvents(events.filter(e => e.id !== eventId));
+      await deleteEventMutation.mutateAsync({ id: eventId });
       toast.success('Evento excluído');
     } catch (error) {
       console.error('Error deleting event:', error);
@@ -99,8 +44,14 @@ export const DashboardPage: React.FC = () => {
   };
 
   const handleSignOut = async () => {
-    await signOut();
-    navigate('/');
+    try {
+      await signOut();
+    } catch (error) {
+      console.error('Error during sign out:', error);
+    } finally {
+      // Always navigate to home, even if signOut fails
+      navigate('/');
+    }
   };
 
   const getEventIcon = (type: string) => {
@@ -184,7 +135,7 @@ export const DashboardPage: React.FC = () => {
               </button>
 
               {activeDropdown === 'user' && (
-                <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-2 z-50">
+                <div className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-2 z-[60]">
                   <Link
                     to="/settings"
                     className="flex items-center gap-3 px-4 py-2 text-slate-300 hover:bg-slate-700 transition-colors"
@@ -305,7 +256,7 @@ export const DashboardPage: React.FC = () => {
                       </button>
 
                       {activeDropdown === event.id && (
-                        <div className="absolute right-0 top-full mt-1 w-40 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-2 z-10">
+                        <div className="absolute right-0 top-full mt-1 w-40 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-2 z-50">
                           <Link
                             to={`/event/${event.id}`}
                             className="flex items-center gap-3 px-4 py-2 text-slate-300 hover:bg-slate-700 transition-colors"
@@ -341,15 +292,15 @@ export const DashboardPage: React.FC = () => {
                 <div className="p-6 space-y-4">
                   <div className="flex items-center gap-3 text-slate-300">
                     <Calendar size={18} className="text-slate-500" />
-                    <span>{formatDate(event.event_date)}</span>
+                    <span>{formatDate(event.eventDate)}</span>
                   </div>
                   <div className="flex items-center gap-3 text-slate-300">
                     <DollarSign size={18} className="text-slate-500" />
-                    <span>{formatCurrency(event.budget_total)}</span>
+                    <span>{formatCurrency(event.budgetTotal)}</span>
                   </div>
                   <div className="flex items-center gap-3 text-slate-300">
                     <Users size={18} className="text-slate-500" />
-                    <span>-- convidados</span>
+                    <span>{event.guestCount || 0} convidados</span>
                   </div>
                 </div>
 
@@ -372,10 +323,7 @@ export const DashboardPage: React.FC = () => {
       {showNewEventModal && (
         <NewEventModal
           onClose={() => setShowNewEventModal(false)}
-          onCreated={(newEvent) => {
-            setEvents([newEvent, ...events]);
-            setShowNewEventModal(false);
-          }}
+          onCreated={() => setShowNewEventModal(false)}
         />
       )}
 
@@ -384,6 +332,7 @@ export const DashboardPage: React.FC = () => {
         <div
           className="fixed inset-0 z-40"
           onClick={() => setActiveDropdown(null)}
+          onContextMenu={(e) => e.preventDefault()}
         />
       )}
     </div>
@@ -393,17 +342,18 @@ export const DashboardPage: React.FC = () => {
 // New Event Modal Component
 interface NewEventModalProps {
   onClose: () => void;
-  onCreated: (event: Event) => void;
+  onCreated: () => void;
 }
 
 const NewEventModal: React.FC<NewEventModalProps> = ({ onClose, onCreated }) => {
-  const { user } = useAuth();
   const [name, setName] = useState('');
   const [type, setType] = useState<'wedding' | 'corporate' | 'birthday' | 'other'>('wedding');
   const [eventDate, setEventDate] = useState('');
   const [budget, setBudget] = useState(60000);
-  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  
+  const createEventMutation = useCreateEvent();
+  const loading = createEventMutation.isPending;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -413,52 +363,21 @@ const NewEventModal: React.FC<NewEventModalProps> = ({ onClose, onCreated }) => 
       return;
     }
 
-    setLoading(true);
-
-    if (!isSupabaseConfigured()) {
-      // Demo mode
-      const newEvent: Event = {
-        id: `demo-${Date.now()}`,
-        user_id: 'demo',
+    try {
+      const newEvent = await createEventMutation.mutateAsync({
         name,
         type,
-        event_date: eventDate || null,
-        budget_total: budget,
+        eventDate: eventDate || null,
+        budgetTotal: budget,
         description: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      onCreated(newEvent);
+      });
+      
+      onCreated();
       toast.success('Evento criado!');
       navigate(`/event/${newEvent.id}`);
-      return;
-    }
-
-    try {
-      const { data, error } = await supabase
-        .from('events')
-        .insert({
-          user_id: user!.id,
-          name,
-          type,
-          event_date: eventDate || null,
-          budget_total: budget,
-        } as any)
-        .select()
-        .single();
-
-      if (error) throw error;
-      if (!data) throw new Error('No data returned');
-      
-      const eventData = data as unknown as Event;
-      onCreated(eventData);
-      toast.success('Evento criado!');
-      navigate(`/event/${eventData.id}`);
     } catch (error) {
       console.error('Error creating event:', error);
       toast.error('Erro ao criar evento');
-    } finally {
-      setLoading(false);
     }
   };
 

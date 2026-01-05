@@ -30,17 +30,21 @@ export const INITIAL_CATEGORIES = [
   "Noite de Núpcias"
 ];
 
-export const INITIAL_GROUPS: GuestGroup[] = [
-  { id: 'grp-1', name: 'Casal', color: '#f43f5e' },       // Rose
-  { id: 'grp-2', name: 'Família Noiva', color: '#d946ef' }, // Fuchsia
-  { id: 'grp-3', name: 'Família Noivo', color: '#8b5cf6' }, // Violet
-  { id: 'grp-4', name: 'Amigos', color: '#0ea5e9' },        // Sky
-  { id: 'grp-5', name: 'Trabalho', color: '#10b981' },      // Emerald
+// Generate initial groups with UUIDs at runtime
+export const generateInitialGroups = (): GuestGroup[] => [
+  { id: crypto.randomUUID(), name: 'Casal', color: '#f43f5e' },       // Rose
+  { id: crypto.randomUUID(), name: 'Família Noiva', color: '#d946ef' }, // Fuchsia
+  { id: crypto.randomUUID(), name: 'Família Noivo', color: '#8b5cf6' }, // Violet
+  { id: crypto.randomUUID(), name: 'Amigos', color: '#0ea5e9' },        // Sky
+  { id: crypto.randomUUID(), name: 'Trabalho', color: '#10b981' },      // Emerald
 ];
 
+// Legacy constant for backwards compatibility - generates new UUIDs each time
+export const INITIAL_GROUPS: GuestGroup[] = generateInitialGroups();
+
 export const generateInitialExpenses = (): ExpenseItem[] => {
-  return INITIAL_CATEGORIES.map((cat, index) => ({
-    id: `init-${index}`,
+  return INITIAL_CATEGORIES.map((cat) => ({
+    id: crypto.randomUUID(),
     category: cat,
     supplier: '',
     estimatedValue: 0,
@@ -50,10 +54,13 @@ export const generateInitialExpenses = (): ExpenseItem[] => {
   }));
 };
 
-export const INITIAL_STATE: AppState = {
+export const generateInitialState = (): AppState => ({
   budgetTotal: 60000,
   expenses: generateInitialExpenses(),
-  guestGroups: INITIAL_GROUPS,
+  guestGroups: generateInitialGroups(),
   guests: []
-};
+});
+
+// Legacy constant - now generates fresh UUIDs
+export const INITIAL_STATE: AppState = generateInitialState();
 

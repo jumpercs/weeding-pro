@@ -520,6 +520,33 @@
     "@supabase/realtime-js" "2.89.0"
     "@supabase/storage-js" "2.89.0"
 
+"@tanstack/query-core@5.64.1":
+  version "5.64.1"
+  resolved "https://tractian-454752402615.d.codeartifact.us-east-1.amazonaws.com/npm/node-repo/@tanstack/query-core/-/query-core-5.64.1.tgz#d56e26b3e29fc68a89d140f1fd92900bc8f3fc86"
+  integrity sha512-978Wx4Wl4UJZbmvU/rkaM9cQtXXrbhK0lsz/UZhYIbyKYA8E4LdomTwyh2GHZ4oU0BKKoDH4YlKk2VscCUgNmg==
+
+"@tanstack/react-query@5.64.1":
+  version "5.64.1"
+  resolved "https://tractian-454752402615.d.codeartifact.us-east-1.amazonaws.com/npm/node-repo/@tanstack/react-query/-/react-query-5.64.1.tgz#46b4182f5b045299e4be8d0a91c549ac5dc0a20c"
+  integrity sha512-vW5ggHpIO2Yjj44b4sB+Fd3cdnlMJppXRBJkEHvld6FXh3j5dwWJoQo7mGtKI2RbSFyiyu/PhGAy0+Vv5ev9Eg==
+  dependencies:
+    "@tanstack/query-core" "5.64.1"
+
+"@trpc/client@11.0.0-rc.682":
+  version "11.0.0-rc.682"
+  resolved "https://tractian-454752402615.d.codeartifact.us-east-1.amazonaws.com/npm/node-repo/@trpc/client/-/client-11.0.0-rc.682.tgz#1184ec0f70ad8dd235b99fc77d53cc983b2732c9"
+  integrity sha512-zfM6t4tkbQPm/FHK85jcJjJle7FJTj9U8t/ieDzIe3X6DNo66sg6KqQpjkeTJcaj5u2hga1lmv3rc4uob/7D0g==
+
+"@trpc/react-query@11.0.0-rc.682":
+  version "11.0.0-rc.682"
+  resolved "https://tractian-454752402615.d.codeartifact.us-east-1.amazonaws.com/npm/node-repo/@trpc/react-query/-/react-query-11.0.0-rc.682.tgz#d24c44417a475fbfef7fdebf71379169eaa415c4"
+  integrity sha512-Ghuk7e7jGRvxOD32X/ImGZTqERZ3R03vaPVzfmdWnBeTyOeqBr0Tb8ylTVyCclqBHpTrRhdM3pWlaXR4M/LKDg==
+
+"@trpc/server@11.0.0-rc.682":
+  version "11.0.0-rc.682"
+  resolved "https://tractian-454752402615.d.codeartifact.us-east-1.amazonaws.com/npm/node-repo/@trpc/server/-/server-11.0.0-rc.682.tgz#3b363ffbe58742586f47c98df047171fc03c207e"
+  integrity sha512-y8FhLW/UJ8SOyHByvSQW7WvCnbvYioOYhviWD+sRvqkB9f0O8/sEBPJt1mBadWaO/0tygOghkeNC9o1wAsJ8cg==
+
 "@types/babel__core@^7.20.5":
   version "7.20.5"
   resolved "https://tractian-454752402615.d.codeartifact.us-east-1.amazonaws.com/npm/node-repo/@types/babel__core/-/babel__core-7.20.5.tgz#3df15f27ba85319caa07ba08d0721889bb39c017"
@@ -702,6 +729,13 @@ cookie@^1.0.1:
   version "1.1.1"
   resolved "https://tractian-454752402615.d.codeartifact.us-east-1.amazonaws.com/npm/node-repo/cookie/-/cookie-1.1.1.tgz#3bb9bdfc82369db9c2f69c93c9c3ceb310c88b3c"
   integrity sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ==
+
+copy-anything@^4:
+  version "4.0.5"
+  resolved "https://tractian-454752402615.d.codeartifact.us-east-1.amazonaws.com/npm/node-repo/copy-anything/-/copy-anything-4.0.5.tgz#16cabafd1ea4bb327a540b750f2b4df522825aea"
+  integrity sha512-7Vv6asjS4gMOuILabD3l739tsaxFQmC+a7pLZm02zyvs8p977bL3zEgq3yDk5rn9B0PbYgIv++jmHcuUab4RhA==
+  dependencies:
+    is-what "^5.2.0"
 
 cssesc@^3.0.0:
   version "3.0.0"
@@ -1147,6 +1181,11 @@ is-number@^7.0.0:
   resolved "https://tractian-454752402615.d.codeartifact.us-east-1.amazonaws.com/npm/node-repo/is-number/-/is-number-7.0.0.tgz#7535345b896734d5f80c4d06c50955527a14f12b"
   integrity sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==
 
+is-what@^5.2.0:
+  version "5.5.0"
+  resolved "https://tractian-454752402615.d.codeartifact.us-east-1.amazonaws.com/npm/node-repo/is-what/-/is-what-5.5.0.tgz#a3031815757cfe1f03fed990bf6355a2d3f628c4"
+  integrity sha512-oG7cgbmg5kLYae2N5IVd3jm2s+vldjxJzK1pcu9LfpGuQ93MQSzo0okvRna+7y5ifrD+20FE8FvjusyGaz14fw==
+
 jiti@^1.21.6:
   version "1.21.7"
   resolved "https://tractian-454752402615.d.codeartifact.us-east-1.amazonaws.com/npm/node-repo/jiti/-/jiti-1.21.7.tgz#9dd81043424a3d28458b193d965f0d18a2300ba9"
@@ -1482,6 +1521,13 @@ sucrase@^3.35.0:
     pirates "^4.0.1"
     tinyglobby "^0.2.11"
     ts-interface-checker "^0.1.9"
+
+superjson@^2.2.6:
+  version "2.2.6"
+  resolved "https://tractian-454752402615.d.codeartifact.us-east-1.amazonaws.com/npm/node-repo/superjson/-/superjson-2.2.6.tgz#a223a3a988172a5f9656e2063fe5f733af40d099"
+  integrity sha512-H+ue8Zo4vJmV2nRjpx86P35lzwDT3nItnIsocgumgr0hHMQ+ZGq5vrERg9kJBo5AWGmxZDhzDo+WVIJqkB0cGA==
+  dependencies:
+    copy-anything "^4"
 
 supports-preserve-symlinks-flag@^1.0.0:
   version "1.0.0"

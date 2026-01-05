@@ -5,35 +5,91 @@ import { useUndoRedo } from '../hooks/useUndoRedo';
 import { INITIAL_STATE, INITIAL_GROUPS, generateInitialExpenses } from '../constants';
 import { BudgetView } from '../components/BudgetView';
 import { GuestGraph } from '../components/GuestGraph';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import type { Event as EventType, Guest as DbGuest, GuestGroup as DbGuestGroup, Expense as DbExpense } from '../lib/database.types';
+import { isSupabaseConfigured } from '../lib/supabase';
+import { useEvent, useSyncEventData, useSyncDelta } from '../hooks/useEvents';
+import type { Event as EventType } from '../lib/database.types';
 import { AppState, Guest, GuestGroup, ExpenseItem } from '../types';
 import toast from 'react-hot-toast';
 
 export const EventPage: React.FC = () => {
   const { eventId } = useParams<{ eventId: string }>();
   const navigate = useNavigate();
-  const [event, setEvent] = useState<EventType | null>(null);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
   
-  const { state, execute, undo, redo, canUndo, canRedo, loadState } = useUndoRedo(INITIAL_STATE);
+  const { state, execute, undo, redo, canUndo, canRedo, loadState, getDeltas, hasPendingChanges, markAsSynced } = useUndoRedo(INITIAL_STATE);
   const [activeTab, setActiveTab] = useState<'budget' | 'guests'>('budget');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  
+  // Use delta-based change detection
+  const hasUnsavedChanges = dataLoaded && hasPendingChanges();
 
-  // Load event and data
-  useEffect(() => {
-    loadEventData();
-  }, [eventId]);
+  // Use tRPC to fetch event data
+  const { event: trpcEvent, isLoading: trpcLoading } = useEvent(eventId || '');
+  
+  // Convert tRPC event to local format
+  const event: EventType | null = trpcEvent ? {
+    id: trpcEvent.id,
+    user_id: '', // Not needed for display
+    name: trpcEvent.name,
+    type: trpcEvent.type,
+    event_date: trpcEvent.eventDate,
+    budget_total: trpcEvent.budgetTotal,
+    description: trpcEvent.description,
+    created_at: trpcEvent.createdAt,
+    updated_at: trpcEvent.updatedAt,
+  } : null;
+  
+  const loading = !isSupabaseConfigured() ? false : (trpcLoading && !dataLoaded);
 
-  // Track unsaved changes
+  // Load state from tRPC data when it arrives
   useEffect(() => {
-    if (event) {
-      setHasUnsavedChanges(true);
+    if (trpcEvent && !dataLoaded) {
+      const guests: Guest[] = (trpcEvent.guests || []).map(g => ({
+        id: g.id,
+        name: g.name,
+        groupId: g.groupId || '',
+        confirmed: g.confirmed,
+        parentId: g.parentId || undefined,
+        priority: g.priority as 1 | 2 | 3 | 4 | 5,
+        photoUrl: g.photoUrl || undefined,
+      }));
+
+      const guestGroups: GuestGroup[] = (trpcEvent.guestGroups || []).map(g => ({
+        id: g.id,
+        name: g.name,
+        color: g.color,
+      }));
+
+      const expenses: ExpenseItem[] = (trpcEvent.expenses || []).map(e => ({
+        id: e.id,
+        category: e.category,
+        supplier: e.supplier || '',
+        estimatedValue: e.estimatedValue,
+        actualValue: e.actualValue,
+        isContracted: e.isContracted,
+        include: e.include,
+      }));
+
+      loadState({
+        budgetTotal: trpcEvent.budgetTotal,
+        expenses,
+        guests,
+        guestGroups,
+      });
+      
+      setDataLoaded(true);
     }
-  }, [state]);
+  }, [trpcEvent, dataLoaded, loadState]);
+
+  // Handle demo mode
+  useEffect(() => {
+    if (!isSupabaseConfigured() && !dataLoaded) {
+      loadState(INITIAL_STATE);
+      setDataLoaded(true);
+    }
+  }, [dataLoaded, loadState]);
 
   // Auto-save every 30 seconds
   useEffect(() => {
@@ -48,122 +104,9 @@ export const EventPage: React.FC = () => {
     return () => clearInterval(interval);
   }, [hasUnsavedChanges]);
 
-  const loadEventData = async () => {
-    if (!eventId) {
-      navigate('/dashboard');
-      return;
-    }
-
-    // Set a timeout to prevent infinite loading
-    const timeout = setTimeout(() => {
-      if (loading) {
-        console.warn('Event loading timeout');
-        setLoading(false);
-        toast.error('Timeout ao carregar evento');
-      }
-    }, 10000);
-
-    if (!isSupabaseConfigured()) {
-      // Demo mode
-      clearTimeout(timeout);
-      setEvent({
-        id: eventId,
-        user_id: 'demo',
-        name: 'Meu Casamento',
-        type: 'wedding',
-        event_date: '2026-06-15',
-        budget_total: 60000,
-        description: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-      loadState(INITIAL_STATE);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      // Load event
-      const { data: eventData, error: eventError } = await supabase
-        .from('events')
-        .select('*')
-        .eq('id', eventId)
-        .single();
-
-      if (eventError || !eventData) {
-        clearTimeout(timeout);
-        toast.error('Evento não encontrado');
-        navigate('/dashboard');
-        return;
-      }
-
-      setEvent(eventData);
-
-      // Load guests
-      const { data: guestsData } = await supabase
-        .from('guests')
-        .select('*')
-        .eq('event_id', eventId);
-
-      // Load guest groups
-      const { data: groupsData } = await supabase
-        .from('guest_groups')
-        .select('*')
-        .eq('event_id', eventId);
-
-      // Load expenses
-      const { data: expensesData } = await supabase
-        .from('expenses')
-        .select('*')
-        .eq('event_id', eventId);
-
-      // Convert to app state format
-      const guests: Guest[] = (guestsData || []).map(g => ({
-        id: g.id,
-        name: g.name,
-        groupId: g.group_id || '', // Use group_id (FK)
-        confirmed: g.confirmed,
-        parentId: g.parent_id || undefined,
-        priority: g.priority as 1 | 2 | 3 | 4 | 5,
-        photoUrl: g.photo_url || undefined,
-      }));
-
-      const guestGroups: GuestGroup[] = (groupsData || []).length > 0
-        ? groupsData!.map(g => ({
-            id: g.id,
-            name: g.name,
-            color: g.color,
-          }))
-        : INITIAL_GROUPS;
-
-      const expenses: ExpenseItem[] = (expensesData || []).length > 0
-        ? expensesData!.map(e => ({
-            id: e.id,
-            category: e.category,
-            supplier: e.supplier || '',
-            estimatedValue: Number(e.estimated_value),
-            actualValue: Number(e.actual_value),
-            isContracted: e.is_contracted,
-            include: e.include,
-          }))
-        : generateInitialExpenses();
-
-      loadState({
-        budgetTotal: Number(eventData.budget_total),
-        expenses,
-        guests,
-        guestGroups,
-      });
-
-      setHasUnsavedChanges(false);
-    } catch (error) {
-      console.error('Error loading event:', error);
-      toast.error('Erro ao carregar evento');
-    } finally {
-      clearTimeout(timeout);
-      setLoading(false);
-    }
-  };
+// Use delta sync for fast incremental saves, fallback to full sync for large changes
+  const syncDelta = useSyncDelta();
+  const syncEventData = useSyncEventData();
 
   const handleSave = useCallback(async () => {
     if (!isSupabaseConfigured() || !eventId || !event) {
@@ -174,84 +117,107 @@ export const EventPage: React.FC = () => {
     setSaving(true);
 
     try {
-      // Update event budget
-      await supabase
-        .from('events')
-        .update({ budget_total: state.budgetTotal })
-        .eq('id', eventId);
+      const delta = getDeltas();
+      
+      // Calculate total changes
+      const totalChanges = 
+        (delta.budgetTotal !== undefined ? 1 : 0) +
+        delta.guests.created.length + delta.guests.updated.length + delta.guests.deleted.length +
+        delta.guestGroups.created.length + delta.guestGroups.updated.length + delta.guestGroups.deleted.length +
+        delta.expenses.created.length + delta.expenses.updated.length + delta.expenses.deleted.length;
 
-      // Helper to check valid UUIDs
-      const isValidUUID = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-      
-      // Sync guest groups FIRST to get IDs for guests
-      await supabase.from('guest_groups').delete().eq('event_id', eventId);
-      let groupIdMap: Record<string, string> = {};
-      
-      if (state.guestGroups.length > 0) {
-        const groupsHaveValidIds = state.guestGroups.every(g => isValidUUID(g.id));
-        
-        const { data: insertedGroups } = await supabase.from('guest_groups').insert(
-          state.guestGroups.map(g => ({
-            ...(groupsHaveValidIds ? { id: g.id } : {}),
-            event_id: eventId,
+      // If changes are small, use delta sync (much faster)
+      // If changes are large (>50% of data), use full sync
+      const totalItems = state.guests.length + state.guestGroups.length + state.expenses.length;
+      const useDeltaSync = totalChanges < totalItems * 0.5;
+
+      if (useDeltaSync && totalChanges > 0) {
+        // Delta sync - only send changes
+        await syncDelta.mutateAsync({
+          eventId,
+          budgetTotal: delta.budgetTotal,
+          guests: {
+            created: delta.guests.created.map(g => ({
+              id: g.id,
+              name: g.name,
+              groupId: g.groupId || null,
+              confirmed: g.confirmed,
+              parentId: g.parentId || null,
+              priority: g.priority || 3,
+              photoUrl: g.photoUrl || null,
+            })),
+            updated: delta.guests.updated.map(g => ({
+              id: g.id,
+              name: g.name,
+              groupId: g.groupId || null,
+              confirmed: g.confirmed,
+              parentId: g.parentId || null,
+              priority: g.priority || 3,
+              photoUrl: g.photoUrl || null,
+            })),
+            deleted: delta.guests.deleted,
+          },
+          guestGroups: {
+            created: delta.guestGroups.created,
+            updated: delta.guestGroups.updated,
+            deleted: delta.guestGroups.deleted,
+          },
+          expenses: {
+            created: delta.expenses.created.map(e => ({
+              id: e.id,
+              category: e.category,
+              supplier: e.supplier || null,
+              estimatedValue: e.estimatedValue,
+              actualValue: e.actualValue,
+              isContracted: e.isContracted,
+              include: e.include,
+            })),
+            updated: delta.expenses.updated.map(e => ({
+              id: e.id,
+              category: e.category,
+              supplier: e.supplier || null,
+              estimatedValue: e.estimatedValue,
+              actualValue: e.actualValue,
+              isContracted: e.isContracted,
+              include: e.include,
+            })),
+            deleted: delta.expenses.deleted,
+          },
+        });
+      } else if (totalChanges > 0) {
+        // Full sync for large changes or first save
+        await syncEventData.mutateAsync({
+          eventId,
+          budgetTotal: state.budgetTotal,
+          guestGroups: state.guestGroups.map(g => ({
+            id: g.id,
             name: g.name,
             color: g.color,
-          }))
-        ).select();
-        
-        // Create mapping from old IDs to new IDs
-        if (insertedGroups) {
-          if (groupsHaveValidIds) {
-            // IDs were preserved
-            state.guestGroups.forEach(g => { groupIdMap[g.id] = g.id; });
-          } else {
-            // Map by name (order preserved)
-            state.guestGroups.forEach((g, i) => {
-              if (insertedGroups[i]) {
-                groupIdMap[g.id] = insertedGroups[i].id;
-              }
-            });
-          }
-        }
-      }
-
-      // Sync guests - delete all and re-insert
-      await supabase.from('guests').delete().eq('event_id', eventId);
-      if (state.guests.length > 0) {
-        const guestsHaveValidIds = state.guests.every(g => isValidUUID(g.id));
-        
-        await supabase.from('guests').insert(
-          state.guests.map(g => ({
-            ...(guestsHaveValidIds ? { id: g.id } : {}),
-            event_id: eventId,
+          })),
+          guests: state.guests.map(g => ({
+            id: g.id,
             name: g.name,
-            group_id: groupIdMap[g.groupId] || g.groupId || null, // Use mapped group_id
+            groupId: g.groupId || null,
             confirmed: g.confirmed,
-            parent_id: (g.parentId && guestsHaveValidIds) ? g.parentId : null,
+            parentId: g.parentId || null,
             priority: g.priority || 3,
-            photo_url: g.photoUrl || null,
-          }))
-        );
-      }
-
-      // Sync expenses - omit id to let Supabase generate UUIDs
-      await supabase.from('expenses').delete().eq('event_id', eventId);
-      if (state.expenses.length > 0) {
-        await supabase.from('expenses').insert(
-          state.expenses.map(e => ({
-            event_id: eventId,
+            photoUrl: g.photoUrl || null,
+          })),
+          expenses: state.expenses.map(e => ({
+            id: e.id,
             category: e.category,
             supplier: e.supplier || null,
-            estimated_value: e.estimatedValue,
-            actual_value: e.actualValue,
-            is_contracted: e.isContracted,
+            estimatedValue: e.estimatedValue,
+            actualValue: e.actualValue,
+            isContracted: e.isContracted,
             include: e.include,
-          }))
-        );
+          })),
+        });
       }
 
+      // Mark current state as synced (update baseline)
+      markAsSynced();
       setLastSaved(new Date());
-      setHasUnsavedChanges(false);
       toast.success('Salvo na nuvem');
     } catch (error) {
       console.error('Error saving:', error);
@@ -259,11 +225,41 @@ export const EventPage: React.FC = () => {
     } finally {
       setSaving(false);
     }
-  }, [eventId, event, state]);
+  }, [eventId, event, state, getDeltas, syncDelta, syncEventData, markAsSynced]);
 
-  // Export/Import handlers (keep existing functionality)
+  // Export/Import handlers - exports clean data without internal IDs
   const handleExport = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state));
+    // Create clean export without internal IDs (more portable)
+    const exportData = {
+      budgetTotal: state.budgetTotal,
+      guestGroups: state.guestGroups.map(g => ({
+        name: g.name,
+        color: g.color,
+      })),
+      guests: state.guests.map(g => {
+        const group = state.guestGroups.find(gr => gr.id === g.groupId);
+        const parent = g.parentId ? state.guests.find(p => p.id === g.parentId) : null;
+        return {
+          name: g.name,
+          groupName: group?.name || '',
+          confirmed: g.confirmed,
+          parentName: parent?.name || null,
+          priority: g.priority || 3,
+          photoUrl: g.photoUrl || null,
+        };
+      }),
+      expenses: state.expenses.map(e => ({
+        category: e.category,
+        supplier: e.supplier,
+        estimatedValue: e.estimatedValue,
+        actualValue: e.actualValue,
+        isContracted: e.isContracted,
+        include: e.include,
+      })),
+      exportedAt: new Date().toISOString(),
+    };
+    
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
     const downloadAnchorNode = document.createElement('a');
     downloadAnchorNode.setAttribute("href", dataStr);
     downloadAnchorNode.setAttribute("download", `${event?.name || 'evento'}_backup_${new Date().toISOString().split('T')[0]}.json`);
@@ -280,17 +276,152 @@ export const EventPage: React.FC = () => {
     reader.onload = (ev) => {
       try {
         const json = JSON.parse(ev.target?.result as string);
-        if (json.budgetTotal && Array.isArray(json.expenses) && Array.isArray(json.guests)) {
-          if (!json.guestGroups) {
-            json.guestGroups = INITIAL_STATE.guestGroups;
+        if (json.budgetTotal !== undefined && Array.isArray(json.guests)) {
+          
+          // Extract unique group names and create groups
+          // Support both 'group' (old format) and 'groupName' (new format)
+          const groupNames = new Set<string>();
+          json.guestGroups?.forEach((g: { name: string }) => groupNames.add(g.name));
+          json.guests.forEach((g: { group?: string; groupName?: string }) => {
+            const gName = g.group || g.groupName;
+            if (gName) groupNames.add(gName);
+          });
+          
+          const groupByName: Record<string, GuestGroup> = {};
+          const defaultColors = ['#f43f5e', '#d946ef', '#8b5cf6', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444'];
+          let colorIdx = 0;
+          
+          // Use provided groups or create from names
+          if (json.guestGroups?.length > 0) {
+            json.guestGroups.forEach((g: { name: string; color?: string }) => {
+              const id = crypto.randomUUID();
+              groupByName[g.name] = { id, name: g.name, color: g.color || defaultColors[colorIdx++ % defaultColors.length] };
+            });
           }
-          loadState(json as AppState);
-          setHasUnsavedChanges(true);
-          toast.success('Dados importados!');
+          // Add any groups referenced by guests but not in guestGroups
+          groupNames.forEach(name => {
+            if (!groupByName[name]) {
+              groupByName[name] = { id: crypto.randomUUID(), name, color: defaultColors[colorIdx++ % defaultColors.length] };
+            }
+          });
+          
+          const newGroups = Object.values(groupByName);
+          if (newGroups.length === 0) {
+            INITIAL_GROUPS.forEach(g => {
+              groupByName[g.name] = { id: crypto.randomUUID(), name: g.name, color: g.color };
+            });
+          }
+          const finalGroups = Object.values(groupByName);
+          
+          // Create guests - first pass to build old ID -> new ID map
+          const oldIdToNewId: Record<string, string> = {};
+          json.guests.forEach((g: { id?: string }) => {
+            const oldId = g.id || crypto.randomUUID();
+            oldIdToNewId[oldId] = crypto.randomUUID();
+          });
+          
+          // Second pass to create guests with correct references
+          // Support both 'parentId' (old format) and 'parentName' (new format)
+          type ImportedGuest = { 
+            id?: string; 
+            name: string; 
+            group?: string; 
+            groupName?: string; 
+            confirmed?: boolean; 
+            parentId?: string; 
+            parentName?: string | null; 
+            priority?: number; 
+            photoUrl?: string | null;
+          };
+          
+          // Build name -> newId map for parentName lookup
+          const nameToNewId: Record<string, string> = {};
+          json.guests.forEach((g: ImportedGuest) => {
+            const oldId = g.id || crypto.randomUUID();
+            nameToNewId[g.name] = oldIdToNewId[oldId];
+          });
+          
+          const newGuests: Guest[] = json.guests.map((g: ImportedGuest) => {
+            const oldId = g.id || '';
+            const groupName = g.group || g.groupName;
+            
+            // Resolve parentId: check old parentId first, then parentName
+            let resolvedParentId: string | undefined;
+            if (g.parentId && oldIdToNewId[g.parentId]) {
+              resolvedParentId = oldIdToNewId[g.parentId];
+            } else if (g.parentName && nameToNewId[g.parentName]) {
+              resolvedParentId = nameToNewId[g.parentName];
+            }
+            
+            return {
+              id: oldIdToNewId[oldId] || crypto.randomUUID(),
+              name: g.name,
+              groupId: groupName ? (groupByName[groupName]?.id || finalGroups[0]?.id) : finalGroups[0]?.id,
+              confirmed: g.confirmed || false,
+              parentId: resolvedParentId,
+              priority: (g.priority || 3) as 1 | 2 | 3 | 4 | 5,
+              photoUrl: g.photoUrl || undefined,
+            };
+          });
+          
+          // Expenses
+          const newExpenses: ExpenseItem[] = (json.expenses || generateInitialExpenses()).map((e: { category?: string; supplier?: string; estimatedValue?: number; actualValue?: number; isContracted?: boolean; include?: boolean }) => ({
+            id: crypto.randomUUID(),
+            category: e.category || 'Sem categoria',
+            supplier: e.supplier || '',
+            estimatedValue: e.estimatedValue || 0,
+            actualValue: e.actualValue || 0,
+            isContracted: e.isContracted || false,
+            include: e.include !== false,
+          }));
+          
+          // Load into local state
+          loadState({
+            budgetTotal: json.budgetTotal,
+            guestGroups: finalGroups,
+            guests: newGuests,
+            expenses: newExpenses,
+          });
+          
+          // Save to database immediately using full sync
+          if (eventId) {
+            syncEventData.mutate({
+              eventId,
+              budgetTotal: json.budgetTotal,
+              guestGroups: finalGroups.map(g => ({
+                id: g.id,
+                name: g.name,
+                color: g.color,
+              })),
+              guests: newGuests.map(g => ({
+                id: g.id,
+                name: g.name,
+                groupId: g.groupId || null,
+                confirmed: g.confirmed,
+                parentId: g.parentId || null,
+                priority: g.priority || 3,
+                photoUrl: g.photoUrl || null,
+              })),
+              expenses: newExpenses.map(e => ({
+                id: e.id,
+                category: e.category,
+                supplier: e.supplier || null,
+                estimatedValue: e.estimatedValue,
+                actualValue: e.actualValue,
+                isContracted: e.isContracted,
+                include: e.include,
+              })),
+            });
+            markAsSynced();
+            toast.success(`Importado e salvo: ${newGuests.length} convidados, ${finalGroups.length} grupos`);
+          } else {
+            toast.success(`Importado: ${newGuests.length} convidados, ${finalGroups.length} grupos`);
+          }
         } else {
           toast.error('Formato de arquivo inválido');
         }
       } catch (err) {
+        console.error('Import error:', err);
         toast.error('Erro ao ler arquivo');
       }
     };
@@ -438,7 +569,7 @@ export const EventPage: React.FC = () => {
             onAddExpense={() => execute({ 
               type: 'ADD_EXPENSE', 
               payload: { 
-                id: Date.now().toString(), 
+                id: crypto.randomUUID(), 
                 category: 'Nova Despesa', 
                 supplier: '', 
                 estimatedValue: 0, 
