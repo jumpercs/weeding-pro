@@ -108,6 +108,7 @@ model Guest {
   parentId  String?  @map("parent_id") @db.Uuid
   priority  Int      @default(3)
   photoUrl  String?  @map("photo_url")
+  isRoot    Boolean  @default(false) @map("is_root")
   notes     String?
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz

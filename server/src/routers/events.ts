@@ -83,6 +83,9 @@ export const eventsRouter = router({
             parentId: g.parentId,
             priority: g.priority as 1 | 2 | 3 | 4 | 5,
             photoUrl: g.photoUrl,
+            // Some environments may have an older Prisma client type that doesn't
+            // yet include `isRoot`; keep runtime behavior correct.
+            isRoot: (g as unknown as { isRoot?: boolean | null }).isRoot ?? false,
           };
         }),
         guestGroups: event.guestGroups.map(g => ({
@@ -221,6 +224,7 @@ export const eventsRouter = router({
         parentId: z.string().nullish(),
         priority: z.number().min(1).max(5).default(3),
         photoUrl: z.string().nullish(),
+        isRoot: z.boolean().optional(),
       })),
       expenses: z.array(z.object({
         id: z.string(),
@@ -335,13 +339,14 @@ export const eventsRouter = router({
               const guestId = guestIdMap[g.id];
               const groupId = g.groupId ? (groupIdMap[g.groupId] || null) : null;
               const parentId = g.parentId ? (guestIdMap[g.parentId] || null) : null;
+              const isRoot = g.isRoot ?? false;
               
-              return `('${guestId}'::uuid, '${eventId}'::uuid, ${escapeSQL(g.name)}, ${groupId ? `'${groupId}'::uuid` : 'NULL'}, ${g.confirmed}, ${parentId ? `'${parentId}'::uuid` : 'NULL'}, ${g.priority}, ${escapeSQL(g.photoUrl)}, NOW(), NOW())`;
+              return `('${guestId}'::uuid, '${eventId}'::uuid, ${escapeSQL(g.name)}, ${groupId ? `'${groupId}'::uuid` : 'NULL'}, ${g.confirmed}, ${parentId ? `'${parentId}'::uuid` : 'NULL'}, ${g.priority}, ${escapeSQL(g.photoUrl)}, ${isRoot}, NOW(), NOW())`;
             })
             .join(',\n');
           
           await tx.$executeRawUnsafe(`
-            INSERT INTO guests (id, event_id, name, group_id, confirmed, parent_id, priority, photo_url, created_at, updated_at)
+            INSERT INTO guests (id, event_id, name, group_id, confirmed, parent_id, priority, photo_url, is_root, created_at, updated_at)
             VALUES ${guestValues}
           `);
         }
@@ -367,6 +372,7 @@ export const eventsRouter = router({
           parentId: z.string().nullish(),
           priority: z.number().min(1).max(5).default(3),
           photoUrl: z.string().nullish(),
+          isRoot: z.boolean().optional(),
         })),
         updated: z.array(z.object({
           id: z.string(),
@@ -376,6 +382,7 @@ export const eventsRouter = router({
           parentId: z.string().nullish(),
           priority: z.number().min(1).max(5).default(3),
           photoUrl: z.string().nullish(),
+          isRoot: z.boolean().optional(),
         })),
         deleted: z.array(z.string()),
       }),
@@ -489,10 +496,11 @@ export const eventsRouter = router({
           .map(g => {
             const groupId = g.groupId ? `'${g.groupId}'::uuid` : 'NULL';
             const parentId = g.parentId ? `'${g.parentId}'::uuid` : 'NULL';
-            return `('${g.id}'::uuid, '${eventId}'::uuid, ${escapeSQL(g.name)}, ${groupId}, ${g.confirmed}, ${parentId}, ${g.priority}, ${escapeSQL(g.photoUrl)}, NOW(), NOW())`;
+            const isRoot = g.isRoot ?? false;
+            return `('${g.id}'::uuid, '${eventId}'::uuid, ${escapeSQL(g.name)}, ${groupId}, ${g.confirmed}, ${parentId}, ${g.priority}, ${escapeSQL(g.photoUrl)}, ${isRoot}, NOW(), NOW())`;
           })
           .join(', ');
-        statements.push(`INSERT INTO guests (id, event_id, name, group_id, confirmed, parent_id, priority, photo_url, created_at, updated_at) VALUES ${values}`);
+        statements.push(`INSERT INTO guests (id, event_id, name, group_id, confirmed, parent_id, priority, photo_url, is_root, created_at, updated_at) VALUES ${values}`);
       }
 
       // ========== UPDATES ==========
@@ -515,15 +523,21 @@ export const eventsRouter = router({
       for (const guest of input.guests.updated) {
         const groupId = guest.groupId ? `'${guest.groupId}'::uuid` : 'NULL';
         const parentId = guest.parentId ? `'${guest.parentId}'::uuid` : 'NULL';
+        const isRoot = guest.isRoot ?? false;
         statements.push(
-          `UPDATE guests SET name = ${escapeSQL(guest.name)}, group_id = ${groupId}, confirmed = ${guest.confirmed}, parent_id = ${parentId}, priority = ${guest.priority}, photo_url = ${escapeSQL(guest.photoUrl)}, updated_at = NOW() WHERE id = '${guest.id}'::uuid AND event_id = '${eventId}'::uuid`
+          `UPDATE guests SET name = ${escapeSQL(guest.name)}, group_id = ${groupId}, confirmed = ${guest.confirmed}, parent_id = ${parentId}, priority = ${guest.priority}, photo_url = ${escapeSQL(guest.photoUrl)}, is_root = ${isRoot}, updated_at = NOW() WHERE id = '${guest.id}'::uuid AND event_id = '${eventId}'::uuid`
         );
       }
 
       // Execute all statements in a single query if there are any
       if (statements.length > 0) {
-        const combinedSQL = statements.join(';\n');
-        await ctx.prisma.$executeRawUnsafe(combinedSQL);
+        // IMPORTANT: Prisma/Postgres do not allow multiple commands in a single
+        // prepared statement. Execute sequentially inside a transaction instead.
+        await ctx.prisma.$transaction(async (tx) => {
+          for (const sql of statements) {
+            await tx.$executeRawUnsafe(sql);
+          }
+        });
       }
 
       return { success: true, savedAt: new Date().toISOString() };

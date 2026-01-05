@@ -22,6 +22,7 @@ export interface Guest {
   parentId?: string; // ID do convidado ao qual este está conectado
   priority?: 1 | 2 | 3 | 4 | 5; // 1 = muito baixa, 2 = baixa, 3 = média, 4 = alta, 5 = muito alta (maior no grafo)
   photoUrl?: string; // URL da foto do convidado (base64 ou URL externa)
+  isRoot?: boolean; // Marcado manualmente como convidado raiz (conexão direta com organizadores)
 }
 
 export interface AppState {

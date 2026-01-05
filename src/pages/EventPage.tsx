@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
-import { Download, Upload, Undo2, Redo2, LayoutDashboard, Users, ArrowLeft, Loader2, Save, Cloud, CloudOff } from 'lucide-react';
+import { Upload, Undo2, Redo2, LayoutDashboard, Users, ArrowLeft, Loader2, Save, Cloud, CloudOff } from 'lucide-react';
 import { useUndoRedo } from '../hooks/useUndoRedo';
 import { INITIAL_STATE, INITIAL_GROUPS, generateInitialExpenses } from '../constants';
 import { BudgetView } from '../components/BudgetView';
 import { GuestGraph } from '../components/GuestGraph';
+import { ExportMenu } from '../components/ExportMenu';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { useEvent, useSyncEventData, useSyncDelta } from '../hooks/useEvents';
 import type { Event as EventType } from '../lib/database.types';
@@ -54,6 +55,7 @@ export const EventPage: React.FC = () => {
         parentId: g.parentId || undefined,
         priority: g.priority as 1 | 2 | 3 | 4 | 5,
         photoUrl: g.photoUrl || undefined,
+        isRoot: g.isRoot || undefined,
       }));
 
       const guestGroups: GuestGroup[] = (trpcEvent.guestGroups || []).map(g => ({
@@ -145,6 +147,7 @@ export const EventPage: React.FC = () => {
               parentId: g.parentId || null,
               priority: g.priority || 3,
               photoUrl: g.photoUrl || null,
+              isRoot: g.isRoot || false,
             })),
             updated: delta.guests.updated.map(g => ({
               id: g.id,
@@ -154,6 +157,7 @@ export const EventPage: React.FC = () => {
               parentId: g.parentId || null,
               priority: g.priority || 3,
               photoUrl: g.photoUrl || null,
+              isRoot: g.isRoot || false,
             })),
             deleted: delta.guests.deleted,
           },
@@ -202,6 +206,7 @@ export const EventPage: React.FC = () => {
             parentId: g.parentId || null,
             priority: g.priority || 3,
             photoUrl: g.photoUrl || null,
+            isRoot: g.isRoot || false,
           })),
           expenses: state.expenses.map(e => ({
             id: e.id,
@@ -227,47 +232,7 @@ export const EventPage: React.FC = () => {
     }
   }, [eventId, event, state, getDeltas, syncDelta, syncEventData, markAsSynced]);
 
-  // Export/Import handlers - exports clean data without internal IDs
-  const handleExport = () => {
-    // Create clean export without internal IDs (more portable)
-    const exportData = {
-      budgetTotal: state.budgetTotal,
-      guestGroups: state.guestGroups.map(g => ({
-        name: g.name,
-        color: g.color,
-      })),
-      guests: state.guests.map(g => {
-        const group = state.guestGroups.find(gr => gr.id === g.groupId);
-        const parent = g.parentId ? state.guests.find(p => p.id === g.parentId) : null;
-        return {
-          name: g.name,
-          groupName: group?.name || '',
-          confirmed: g.confirmed,
-          parentName: parent?.name || null,
-          priority: g.priority || 3,
-          photoUrl: g.photoUrl || null,
-        };
-      }),
-      expenses: state.expenses.map(e => ({
-        category: e.category,
-        supplier: e.supplier,
-        estimatedValue: e.estimatedValue,
-        actualValue: e.actualValue,
-        isContracted: e.isContracted,
-        include: e.include,
-      })),
-      exportedAt: new Date().toISOString(),
-    };
-    
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData, null, 2));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", `${event?.name || 'evento'}_backup_${new Date().toISOString().split('T')[0]}.json`);
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-  };
-
+  // Import handler for JSON backups
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -395,12 +360,13 @@ export const EventPage: React.FC = () => {
               })),
               guests: newGuests.map(g => ({
                 id: g.id,
-                name: g.name,
-                groupId: g.groupId || null,
-                confirmed: g.confirmed,
-                parentId: g.parentId || null,
-                priority: g.priority || 3,
-                photoUrl: g.photoUrl || null,
+              name: g.name,
+              groupId: g.groupId || null,
+              confirmed: g.confirmed,
+              parentId: g.parentId || null,
+              priority: g.priority || 3,
+              photoUrl: g.photoUrl || null,
+              isRoot: g.isRoot || false,
               })),
               expenses: newExpenses.map(e => ({
                 id: e.id,
@@ -533,7 +499,7 @@ export const EventPage: React.FC = () => {
             </button>
           </div>
 
-          {/* Import/Export */}
+          {/* Import JSON */}
           <div className="flex items-center gap-2">
             <input 
               type="file" 
@@ -546,15 +512,17 @@ export const EventPage: React.FC = () => {
               onClick={() => fileInputRef.current?.click()}
               className="flex items-center gap-2 text-sm text-slate-400 hover:text-teal-400 px-3 py-2 rounded hover:bg-slate-800 transition-colors"
             >
-              <Upload size={16} /> Importar
-            </button>
-            <button 
-              onClick={handleExport}
-              className="flex items-center gap-2 text-sm bg-slate-800 hover:bg-slate-700 text-teal-400 border border-teal-900/50 hover:border-teal-500/50 px-3 py-2 rounded transition-all shadow-sm"
-            >
-              <Download size={16} /> Exportar
+              <Upload size={16} /> Importar JSON
             </button>
           </div>
+
+          {/* Export Menu */}
+          <ExportMenu
+            state={state}
+            eventName={event?.name || 'Evento'}
+            eventDate={event?.event_date}
+            graphElementId="guest-graph-container"
+          />
         </div>
       </header>
 

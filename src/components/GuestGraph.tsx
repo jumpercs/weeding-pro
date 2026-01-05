@@ -126,6 +126,7 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
   const [editParentId, setEditParentId] = useState<string>('');
   const [editPriority, setEditPriority] = useState<1 | 2 | 3 | 4 | 5>(3);
   const [editPhotoUrl, setEditPhotoUrl] = useState('');
+  const [editIsRoot, setEditIsRoot] = useState(false);
 
   // Helper function to get group by ID
   const getGroupById = useCallback((groupId: string) => groups.find(g => g.id === groupId), [groups]);
@@ -141,6 +142,7 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
       setEditParentId(selectedGuest.parentId || '');
       setEditPriority(selectedGuest.priority || 3);
       setEditPhotoUrl(selectedGuest.photoUrl || '');
+      setEditIsRoot(selectedGuest.isRoot || false);
       setSidebarTab('edit');
     } else if (sidebarTab === 'edit') {
       setSidebarTab('add');
@@ -176,6 +178,21 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
       confirmed: guests.filter(g => g.groupId === group.id && g.confirmed).length
     }));
   }, [guests, groups]);
+
+  // Sorted guests list: roots first, then by priority, then by name
+  const sortedGuests = useMemo(() => {
+    return [...guests].sort((a, b) => {
+      // Roots first
+      if (a.isRoot && !b.isRoot) return -1;
+      if (!a.isRoot && b.isRoot) return 1;
+      // Then by priority (higher first)
+      if ((a.priority || 3) !== (b.priority || 3)) {
+        return (b.priority || 3) - (a.priority || 3);
+      }
+      // Then by name
+      return a.name.localeCompare(b.name);
+    });
+  }, [guests]);
 
   const getRadius = useCallback((priority: 1 | 2 | 3 | 4 | 5) => {
     const sizes = { 1: 6, 2: 10, 3: 14, 4: 19, 5: 25 };
@@ -368,12 +385,21 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
       groupId: editGroupId,
       parentId: editParentId || undefined,
       priority: editPriority,
-      photoUrl: editPhotoUrl || undefined
+      photoUrl: editPhotoUrl || undefined,
+      isRoot: editIsRoot,
     });
   };
 
   const getParentOptions = (excludeId?: string) => {
-    return guests.filter(g => g.id !== excludeId).sort((a, b) => a.name.localeCompare(b.name));
+    return guests
+      .filter(g => g.id !== excludeId)
+      .sort((a, b) => {
+        // Roots first
+        if (a.isRoot && !b.isRoot) return -1;
+        if (!a.isRoot && b.isRoot) return 1;
+        // Then by name
+        return a.name.localeCompare(b.name);
+      });
   };
 
   return (
@@ -552,6 +578,26 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
                 </div>
               </div>
               <div>
+                <label className="text-xs text-slate-400 block mb-1">Conexao Raiz</label>
+                <button
+                  type="button"
+                  onClick={() => setEditIsRoot(!editIsRoot)}
+                  className={`w-full flex items-center justify-between p-3 rounded border transition-all ${
+                    editIsRoot 
+                      ? 'bg-violet-900/30 border-violet-500 text-violet-300' 
+                      : 'bg-slate-900 border-slate-600 text-slate-400 hover:border-slate-500'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`w-4 h-4 rounded-full flex items-center justify-center ${editIsRoot ? 'bg-violet-500' : 'border-2 border-slate-500'}`}>
+                      {editIsRoot && <span className="text-white text-xs font-bold">R</span>}
+                    </div>
+                    <span className="text-sm">{editIsRoot ? 'E um convidado raiz' : 'Nao e raiz (veio por conexao)'}</span>
+                  </div>
+                </button>
+                <p className="text-xs text-slate-500 mt-1">Raizes sao convidados diretos dos organizadores</p>
+              </div>
+              <div>
                 <label className="text-xs text-slate-400 block mb-1">Foto</label>
                 {editPhotoUrl ? (
                   <div className="flex gap-2 items-center p-2 bg-slate-900 rounded border border-slate-600">
@@ -600,7 +646,7 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
             </div>
           </div>
           <div className="p-2 space-y-1">
-            {guests.map(g => (
+            {sortedGuests.map(g => (
               <div key={g.id} className={`p-2 rounded flex justify-between items-center group cursor-pointer border-l-4 transition-all ${selectedNodeId === g.id ? 'bg-slate-700 border-white' : 'bg-transparent hover:bg-slate-700/50'}`} style={{ borderLeftColor: selectedNodeId === g.id ? 'white' : getGroupColor(g.groupId) }} onClick={() => setSelectedNodeId(g.id)}>
                 <div className="flex items-center gap-2">
                   {g.photoUrl ? (
@@ -609,7 +655,10 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
                     <div className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold text-white" style={{ backgroundColor: getGroupColor(g.groupId) }}>{g.name.charAt(0).toUpperCase()}</div>
                   )}
                   <div className="flex flex-col min-w-0">
-                    <span className="text-sm font-medium text-slate-200 truncate">{g.name}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium text-slate-200 truncate">{g.name}</span>
+                      {g.isRoot && <span className="text-[9px] bg-violet-500/30 text-violet-300 px-1 rounded font-bold">R</span>}
+                    </div>
                     <span className="text-[10px] uppercase tracking-wider text-slate-500" style={{color: getGroupColor(g.groupId)}}>{getGroupName(g.groupId)}</span>
                   </div>
                 </div>
@@ -623,7 +672,7 @@ export const GuestGraph: React.FC<GuestGraphProps> = ({
       </div>
 
       {/* Graph Area */}
-      <div className="flex-1 relative bg-slate-900 overflow-hidden" ref={containerRef}>
+      <div id="guest-graph-container" className="flex-1 relative bg-slate-900 overflow-hidden" ref={containerRef}>
         <div className="absolute top-4 left-4 z-0 pointer-events-none opacity-50">
           <p className="text-xs text-slate-400">Arraste para organizar | Use o zoom</p>
         </div>

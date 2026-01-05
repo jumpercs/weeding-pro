@@ -33,11 +33,12 @@ export const guestsRouter = router({
         id: g.id,
         name: g.name,
         groupId: g.groupId,
-        groupName: g.group?.name ?? g.groupName,
+        groupName: g.group?.name ?? null,
         confirmed: g.confirmed,
         parentId: g.parentId,
         priority: g.priority as 1 | 2 | 3 | 4 | 5,
         photoUrl: g.photoUrl,
+        isRoot: g.isRoot,
       }));
     }),
 
@@ -51,6 +52,7 @@ export const guestsRouter = router({
       parentId: z.string().uuid().nullable().optional(),
       priority: z.number().min(1).max(5).default(3),
       photoUrl: z.string().nullable().optional(),
+      isRoot: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       await verifyEventOwnership(ctx, input.eventId);
@@ -64,6 +66,7 @@ export const guestsRouter = router({
           parentId: input.parentId,
           priority: input.priority,
           photoUrl: input.photoUrl,
+          isRoot: input.isRoot ?? false,
         },
         include: { group: true },
       });
@@ -77,6 +80,7 @@ export const guestsRouter = router({
         parentId: guest.parentId,
         priority: guest.priority as 1 | 2 | 3 | 4 | 5,
         photoUrl: guest.photoUrl,
+        isRoot: guest.isRoot,
       };
     }),
 
@@ -120,6 +124,7 @@ export const guestsRouter = router({
       parentId: z.string().uuid().nullable().optional(),
       priority: z.number().min(1).max(5).optional(),
       photoUrl: z.string().nullable().optional(),
+      isRoot: z.boolean().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       await verifyEventOwnership(ctx, input.eventId);
@@ -133,6 +138,7 @@ export const guestsRouter = router({
           parentId: input.parentId,
           priority: input.priority,
           photoUrl: input.photoUrl,
+          isRoot: input.isRoot,
         },
         include: { group: true },
       });
@@ -146,6 +152,7 @@ export const guestsRouter = router({
         parentId: guest.parentId,
         priority: guest.priority as 1 | 2 | 3 | 4 | 5,
         photoUrl: guest.photoUrl,
+        isRoot: guest.isRoot,
       };
     }),
 
